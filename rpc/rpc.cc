@@ -524,6 +524,7 @@ void rpcs::dispatch(djob_t *j)
 		}
 
 		stat = checkduplicate_and_update(h.clt_nonce, h.xid, h.xid_rep, &b1, &sz1);
+		// jsl_log(JSL_DBG_4, "sz1=%d\n", sz1);
 	}
 	else
 	{
@@ -577,6 +578,7 @@ void rpcs::dispatch(djob_t *j)
 	case INPROGRESS: // server is working on this request
 		break;
 	case DONE: // duplicate and we still have the response
+		// jsl_log(JSL_DBG_4, "Buf size:-%ld, size:-%d\n", sizeof(b1) / sizeof(char), sz1);
 		c->send(b1, sz1);
 		break;
 	case FORGOTTEN: // very old request and we don't have the response anymore
@@ -594,15 +596,17 @@ void rpcs::add_reply(unsigned int clt_nonce, unsigned int xid,
 					 char *b, int sz)
 {
 	ScopedLock rwl(&reply_window_m_);
-	std::list<rpcs::reply_t> store = reply_window_[clt_nonce];
+	// std::list<rpcs::reply_t> store = reply_window_[clt_nonce];
+	// jsl_log(JSL_DBG_4, "size:- %d\n", sz);
 
 	std::list<rpcs::reply_t>::iterator it;
-	for (it = store.begin(); it != store.end(); it++)
+	for (it = reply_window_[clt_nonce].begin(); it != reply_window_[clt_nonce].end(); it++)
 	{
 		if (it->xid == xid)
 		{
 			it->buf = b;
 			it->sz = sz;
+			// jsl_log(JSL_DBG_4, "After setting the reply, size:- %d\n", it->sz);
 		}
 	}
 }
@@ -611,7 +615,6 @@ void rpcs::free_reply_window(void)
 {
 	std::map<unsigned int, std::list<reply_t>>::iterator clt;
 	std::list<reply_t>::iterator it;
-
 	ScopedLock rwl(&reply_window_m_);
 	for (clt = reply_window_.begin(); clt != reply_window_.end(); clt++)
 	{
@@ -630,43 +633,58 @@ rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
 {
 
 	ScopedLock rwl(&reply_window_m_);
-	std::list<rpcs::reply_t> store = reply_window_[clt_nonce];
-
-	if (xid < store.front().xid)
+	// std::list<rpcs::reply_t> store = reply_window_[clt_nonce];
+	jsl_log(JSL_DBG_4, "[rpc][%d]clt_nonce.front().xid=%d, xid=%d, xid_rep=%d\n", clt_nonce, reply_window_[clt_nonce].front().xid, xid, xid_rep);
+	if (xid < reply_window_[clt_nonce].front().xid)
 		return rpcs::rpcstate_t::FORGOTTEN;
 
+	// reply_t reply = reply_t(xid);
+	if (!reply_window_[clt_nonce].empty())
+	{
+		// Add all xids from the last value of reply_window_[clt_nonce] to the new xid as replies
+		int last_xid = reply_window_[clt_nonce].back().xid;
+		for (unsigned int i = last_xid + 1; i <= xid; i++)
+		{
+			reply_window_[clt_nonce].push_back(reply_t(i));
+		}
+	}
+	else
+	{
+		// List is empty, just add the new value at back
+		reply_window_[clt_nonce].push_back(reply_t(xid));
+	}
+
 	// All requests upto and including xid_rep are received by the client
-	// Can be removed from the store
-	while (store.size() && store.front().xid <= xid_rep)
-		store.pop_front();
+	// Can be removed from the reply_window_[clt_nonce]
+	while (reply_window_[clt_nonce].size() && reply_window_[clt_nonce].front().xid <= xid_rep)
+	{
+		free(reply_window_[clt_nonce].front().buf);
+		reply_window_[clt_nonce].pop_front();
+	}
+	jsl_log(JSL_DBG_4, "[rpc]After compression, reply window size:-%ld\n", reply_window_[clt_nonce].size());
 
 	std::list<rpcs::reply_t>::iterator it;
-	for (it = store.begin(); it != store.end(); it++)
+	for (auto it = reply_window_[clt_nonce].begin(); it != reply_window_[clt_nonce].end(); it++)
 	{
-		if (it->xid == xid)
+		if (it->xid == xid && it->cb_present == false)
+		{
+			it->cb_present = true;
+			return rpcs::rpcstate_t::NEW;
+		}
+		else if (it->xid == xid && it->cb_present == true)
 		{
 			if (it->buf == NULL)
+			{
+				jsl_log(JSL_DBG_4, "[rpc]Buf is null, work in progress\n");
 				return rpcs::rpcstate_t::INPROGRESS;
-			b = &it->buf;
-			sz = &it->sz;
+			}
+			*b = it->buf;
+			*sz = it->sz;
+			jsl_log(JSL_DBG_4, "[rpc]Buf size:- %d, work is done\n", *sz);
 			return rpcs::rpcstate_t::DONE;
 		}
 	}
-
-	reply_t reply = reply_t(xid);
-
-	for (it = store.begin(); it != store.end(); it++)
-	{
-		if (it->xid > xid)
-		{
-			store.insert(it, reply);
-			break;
-		}
-	}
-	if (it == store.end())
-	{
-		store.push_back(reply);
-	}
+	jsl_log(JSL_DBG_4, "[rpc]After adding, reply window size:-%ld\n", reply_window_[clt_nonce].size());
 	return rpcs::rpcstate_t::NEW;
 }
 
