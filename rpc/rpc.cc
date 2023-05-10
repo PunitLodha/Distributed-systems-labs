@@ -594,23 +594,16 @@ void rpcs::add_reply(unsigned int clt_nonce, unsigned int xid,
 					 char *b, int sz)
 {
 	ScopedLock rwl(&reply_window_m_);
-	reply_t reply = reply_t(xid);
-	reply.buf = b;
-	reply.sz = sz;
+	std::list<rpcs::reply_t> store = reply_window_[clt_nonce];
 
- 	std::list<rpcs::reply_t>::iterator it;
-
-	for (it = reply_window_[clt_nonce].begin(); it != reply_window_[clt_nonce].end(); it++)
+	std::list<rpcs::reply_t>::iterator it;
+	for (it = store.begin(); it != store.end(); it++)
 	{
-		if (it->xid > xid)
+		if (it->xid == xid)
 		{
-			reply_window_[clt_nonce].insert(it, xid);
-			break;
+			it->buf = b;
+			it->sz = sz;
 		}
-	}
-	if (it == reply_window_[clt_nonce].end())
-	{
-		reply_window_[clt_nonce].push_back(xid);
 	}
 }
 
@@ -636,24 +629,45 @@ rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
 								unsigned int xid_rep, char **b, int *sz)
 {
 
-	// all requests upto and including xid_rep are received by the client
-	// Can be removed from the store
 	ScopedLock rwl(&reply_window_m_);
 	std::list<rpcs::reply_t> store = reply_window_[clt_nonce];
 
-	if (xid < store.front().xid) return rpcs::rpcstate_t::FORGOTTEN;
+	if (xid < store.front().xid)
+		return rpcs::rpcstate_t::FORGOTTEN;
 
-	for (auto it = store.begin(); it != store.end(); it++) {
-		if (it->xid == xid) return rpcs::rpcstate_t::DONE;
+	// All requests upto and including xid_rep are received by the client
+	// Can be removed from the store
+	while (store.size() && store.front().xid <= xid_rep)
+		store.pop_front();
+
+	std::list<rpcs::reply_t>::iterator it;
+	for (it = store.begin(); it != store.end(); it++)
+	{
+		if (it->xid == xid)
+		{
+			if (it->buf == NULL)
+				return rpcs::rpcstate_t::INPROGRESS;
+			b = &it->buf;
+			sz = &it->sz;
+			return rpcs::rpcstate_t::DONE;
+		}
 	}
 
-	// Remove all the stored replies that are acknowledged
-	while (store.size() && store.front().xid <= xid_rep) 
-		store.pop_front();
-	
-	
+	reply_t reply = reply_t(xid);
 
-
+	for (it = store.begin(); it != store.end(); it++)
+	{
+		if (it->xid > xid)
+		{
+			store.insert(it, reply);
+			break;
+		}
+	}
+	if (it == store.end())
+	{
+		store.push_back(reply);
+	}
+	return rpcs::rpcstate_t::NEW;
 }
 
 // rpc handler
