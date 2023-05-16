@@ -203,13 +203,14 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   ret = yfs->getdir(parent, info);
   if (ret != yfs_client::OK)
     return ret;
-  
+
   found = info.name_to_inum.count(name);
 
-  if (found){
+  if (found)
+  {
     e.ino = info.name_to_inum[name];
-    e.attr = extent_protocol::attr::attr() 
-    fuse_reply_entry(req, &e);
+    e.attr = extent_protocol::attr::attr()
+        fuse_reply_entry(req, &e);
   }
   else
     fuse_reply_err(req, ENOENT);
@@ -261,6 +262,18 @@ void fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
   memset(&b, 0, sizeof(b));
 
   // fill in the b data structure using dirbuf_add
+  yfs_client::dirinfo info;
+  // TODO: make a variable to represent the root directory inum
+  ret = yfs->getdir(inum, info);
+  if (ret != yfs_client::OK) {
+    fuse_reply_err(req, ENOENT);
+    return;
+  }
+
+  for (auto dirent : info.name_to_inum)
+  {
+    dirbuf_add(&b, dirent.first, dirent.second);
+  }
 
   reply_buf_limited(req, b.p, b.size, off, size);
   free(b.p);
