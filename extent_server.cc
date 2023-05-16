@@ -15,6 +15,7 @@ extent_server::extent_server() {
 
 int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &)
 {
+  printf("[extent_server]Putting data for extentid: %llu\n", id);
   pthread_mutex_lock(&extent_map_lock);
   if (!extent_map.count(id))
   {
@@ -34,6 +35,7 @@ int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &)
 
 int extent_server::get(extent_protocol::extentid_t id, std::string &buf)
 {
+  printf("[extent_server]Getting data for extentid: %llu\n", id);
   pthread_mutex_lock(&extent_map_lock);
   if (!extent_map.count(id))
   {
@@ -48,6 +50,7 @@ int extent_server::get(extent_protocol::extentid_t id, std::string &buf)
 
 int extent_server::getattr(extent_protocol::extentid_t id, extent_protocol::attr &a)
 {
+  printf("[extent_server]Getting attr for extentid: %llu\n", id);
   // take lock here
   pthread_mutex_lock(&extent_map_lock);
   if (!extent_map.count(id))
@@ -76,6 +79,7 @@ int extent_server::getattr(extent_protocol::extentid_t id, extent_protocol::attr
 
 int extent_server::remove(extent_protocol::extentid_t id, int &)
 {
+  printf("[extent_server]Removing extentid: %llu\n", id);
   pthread_mutex_lock(&extent_map_lock);
   if (!extent_map.count(id))
   {

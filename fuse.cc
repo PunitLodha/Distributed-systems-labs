@@ -128,10 +128,12 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   yfs_client::status ret;
   yfs_client::dirinfo info;
 
+  printf("create %016lx %s\n", parent, name);
   // Get parent directory
   ret = yfs->getdir(parent_inum, info);
   if (ret != yfs_client::OK)
     return ret;
+  printf("\t\t found parent dir\n");
   // TODO: check if parent is a directory
   // TODO: check if name already exists in parent
 
@@ -143,12 +145,29 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   if (ret != yfs_client::OK)
     return ret;
 
+  printf("\t\t updated new dir\n");
+
   // Create the new file
   yfs_client::fileinfo fileinfo = yfs_client::fileinfo(mode, name);
   ret = yfs->putfile(file_inum, fileinfo);
+  printf("\t\t created new file\n");
+  if (ret != yfs_client::OK)
+    return ret;
 
+  extent_protocol::attr attr;
+  ret = yfs->getattr(file_inum, attr);
+  if (ret != yfs_client::OK)
+    return ret;
   // TODO: Fix the fuse_entry_param
-
+  e->ino = file_inum;
+  e->attr_timeout = 0.0;
+  e->entry_timeout = 0.0;
+  e->attr.st_atime = attr.atime;
+  e->attr.st_mtime = attr.mtime;
+  e->attr.st_ctime = attr.ctime;
+  e->attr.st_mode = mode;
+  e->attr.st_nlink = 1;
+  e->attr.st_size = attr.size;
   return ret;
 }
 
@@ -193,6 +212,7 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   // `parent' in YFS. If the file was found, initialize e.ino and
   // e.attr appropriately.
 
+  printf("lookup %016lx %s\n", parent, name);
   yfs_client::status ret;
   yfs_client::dirinfo info;
   ret = yfs->getdir(parent, info);
@@ -200,12 +220,13 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     fuse_reply_err(req, ENOENT);
     return;
   }
-  
+  printf("\t\tlookup, directory found\n");
   found = info.name_to_inum.count(name);
-
+  printf("\t\tlookup %016lx %s -> %d\n", parent, name, found);
   if (found)
   {
     e.ino = info.name_to_inum[name];
+    printf("\t\tlookup %016lx %s -> %016lx\n", parent, name, e.ino);
     extent_protocol::attr attr;
     ret = yfs->getattr(e.ino, attr);
     if (ret != yfs_client::OK) {
