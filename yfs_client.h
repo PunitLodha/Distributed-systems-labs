@@ -20,11 +20,14 @@
     unsigned long atime;
     unsigned long mtime;
     unsigned long ctime;
+    std::string content;
   };
   struct dirinfo {
+    dirinfo(unsigned long atime, unsigned long mtime, unsigned long ctime,std::string contents);
     unsigned long atime;
     unsigned long mtime;
     unsigned long ctime;
+    std::list<dirent> entries;
   };
   struct dirent {
     std::string name;
@@ -41,9 +44,12 @@
   bool isfile(inum);
   bool isdir(inum);
   inum ilookup(inum di, std::string name);
+  inum gen_rand();
 
   int getfile(inum, fileinfo &);
   int getdir(inum, dirinfo &);
+  int putfile(inum, fileinfo &);
+  int putdir(inum, dirinfo &);
 };
 
 #endif 

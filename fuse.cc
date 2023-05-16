@@ -126,7 +126,32 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
      mode_t mode, struct fuse_entry_param *e)
 {
   // You fill this in
-  return yfs_client::NOENT;
+  yfs_client::inum parent_inum = ino; 
+  yfs_client::inum file_inum = yfs_client->gen_rand() | 0x80000000;
+  yfs_client::status ret;
+  yfs_client::dirinfo info;
+
+  // Get parent directory
+  ret = yfs->getdir(inum, info);
+  if(ret != yfs_client::OK)
+    return ret
+  // TODO: check if parent is a directory
+  // TODO: check if name already exists in parent
+
+  // Add new file to the directory
+  info.entries.push_back({name, file_inum});
+  
+  // Sent extent server the new directory contents
+  yfs_client->putdir(parent_inum, info);
+
+  // Create the new file
+  
+
+  ret = getattr(inum, st);
+  if(ret != yfs_client::OK){
+    return yfs_client::NOENT;
+  }
+  return ret;
 }
 
 void
