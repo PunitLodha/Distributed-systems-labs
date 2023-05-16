@@ -53,6 +53,7 @@ std::ostream &operator<<(std::ostream &os, const yfs_client::fileinfo &fileinfo)
   os << fileinfo.name << "\n"
      << fileinfo.mode << "\n"
      << fileinfo.content << "\n";
+  return os;
 }
 
 yfs_client::dirinfo::dirinfo(unsigned long atime, unsigned long mtime, unsigned long ctime, std::string contents)
@@ -193,7 +194,7 @@ int yfs_client::getattr(inum inum, extent_protocol::attr &attr)
   attr.mtime = a.mtime;
   attr.ctime = a.ctime;
   attr.size = a.size;
-  printf("getattr %016llx -> sz %llu\n", inum, attr.size);
+  printf("getattr %016llx -> sz %u\n", inum, attr.size);
 
 release:
 

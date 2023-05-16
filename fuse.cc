@@ -48,13 +48,13 @@ getattr(yfs_client::inum inum, struct stat &st)
     st.st_mode = S_IFREG | 0666;
     st.st_nlink = 1;
     st.st_size = attr.size;
-    printf("   getattr -> %llu\n", info.size);
+    printf("   getattr -> %u\n", attr.size);
   }
   else
   {
     st.st_mode = S_IFDIR | 0777;
     st.st_nlink = 2;
-    printf("   getattr -> %lu %lu %lu\n", info.atime, info.mtime, info.ctime);
+    printf("   getattr -> %u %u %u\n", attr.atime, attr.mtime, attr.ctime);
   }
   return yfs_client::OK;
 }
@@ -123,29 +123,29 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
                         mode_t mode, struct fuse_entry_param *e)
 {
   // You fill this in
-  yfs_client::inum parent_inum = ino;
-  yfs_client::inum file_inum = yfs_client->gen_rand() | 0x80000000;
+  yfs_client::inum parent_inum = parent;
+  yfs_client::inum file_inum = yfs->gen_rand() | 0x80000000;
   yfs_client::status ret;
   yfs_client::dirinfo info;
 
   // Get parent directory
-  ret = yfs->getdir(inum, info);
+  ret = yfs->getdir(parent_inum, info);
   if (ret != yfs_client::OK)
     return ret;
   // TODO: check if parent is a directory
   // TODO: check if name already exists in parent
 
   // Add new file to the directory
-  info.entries.push_back({name, file_inum});
+  info.name_to_inum[name] = file_inum;
 
   // Sent extent server the new directory contents
-  ret = yfs_client->putdir(parent_inum, info);
+  ret = yfs->putdir(parent_inum, info);
   if (ret != yfs_client::OK)
     return ret;
 
   // Create the new file
   yfs_client::fileinfo fileinfo = yfs_client::fileinfo(mode, name);
-  ret = yfs_client->putfile(file_inum, fileinfo);
+  ret = yfs->putfile(file_inum, fileinfo);
 
   // TODO: Fix the fuse_entry_param
 
@@ -193,6 +193,7 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   // `parent' in YFS. If the file was found, initialize e.ino and
   // e.attr appropriately.
 
+  yfs_client::status ret;
   yfs_client::dirinfo info;
   ret = yfs->getdir(parent, info);
   if (ret != yfs_client::OK) {
@@ -206,12 +207,17 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   {
     e.ino = info.name_to_inum[name];
     extent_protocol::attr attr;
-    ret = yfs->getattr(inum, attr);
+    ret = yfs->getattr(e.ino, attr);
     if (ret != yfs_client::OK) {
       fuse_reply_err(req, ENOENT);
       return;
     }
-    e.attr = attr;
+    e.attr.st_atime = attr.atime;
+    e.attr.st_mtime = attr.mtime;
+    e.attr.st_ctime = attr.ctime;
+    e.attr.st_mode = S_IFREG | 0666;
+    e.attr.st_nlink = 1;
+    e.attr.st_size = attr.size;
     fuse_reply_entry(req, &e);
   }
   else
@@ -265,6 +271,7 @@ void fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 
   // fill in the b data structure using dirbuf_add
   yfs_client::dirinfo info;
+  yfs_client::status ret;
   // TODO: make a variable to represent the root directory inum
   ret = yfs->getdir(inum, info);
   if (ret != yfs_client::OK) {
@@ -274,7 +281,7 @@ void fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 
   for (auto dirent : info.name_to_inum)
   {
-    dirbuf_add(&b, dirent.first, dirent.second);
+    dirbuf_add(&b, dirent.first.c_str(), dirent.second);
   }
 
   reply_buf_limited(req, b.p, b.size, off, size);

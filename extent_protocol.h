@@ -30,11 +30,6 @@ public:
   struct attr
   {
     attr() {}
-    attr(
-        unsigned int atime,
-        unsigned int mtime,
-        unsigned int ctime,
-        unsigned int size);
 
     unsigned int atime;
     unsigned int mtime;
@@ -42,17 +37,6 @@ public:
     unsigned int size;
   };
 };
-
-extent_protocol::attr::attr(unsigned int atime,
-                            unsigned int mtime,
-                            unsigned int ctime,
-                            unsigned int size)
-{
-  this->atime = atime;
-  this->mtime = mtime;
-  this->ctime = ctime;
-  this->size = size
-}
 
 inline unmarshall &
 operator>>(unmarshall &u, extent_protocol::attr &a)
