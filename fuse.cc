@@ -35,31 +35,25 @@ getattr(yfs_client::inum inum, struct stat &st)
 
   st.st_ino = inum;
   printf("getattr %016llx %d\n", inum, yfs->isfile(inum));
+  extent_protocol::attr attr;
+  ret = yfs->getattr(inum, attr);
+  if (ret != yfs_client::OK)
+    return ret;
+  st.st_atime = attr.atime;
+  st.st_mtime = attr.mtime;
+  st.st_ctime = attr.ctime;
+
   if (yfs->isfile(inum))
   {
-    yfs_client::fileinfo info;
-    ret = yfs->getfile(inum, info);
-    if (ret != yfs_client::OK)
-      return ret;
     st.st_mode = S_IFREG | 0666;
     st.st_nlink = 1;
-    st.st_atime = info.atime;
-    st.st_mtime = info.mtime;
-    st.st_ctime = info.ctime;
-    st.st_size = info.size;
+    st.st_size = attr.size;
     printf("   getattr -> %llu\n", info.size);
   }
   else
   {
-    yfs_client::dirinfo info;
-    ret = yfs->getdir(inum, info);
-    if (ret != yfs_client::OK)
-      return ret;
     st.st_mode = S_IFDIR | 0777;
     st.st_nlink = 2;
-    st.st_atime = info.atime;
-    st.st_mtime = info.mtime;
-    st.st_ctime = info.ctime;
     printf("   getattr -> %lu %lu %lu\n", info.atime, info.mtime, info.ctime);
   }
   return yfs_client::OK;
@@ -201,14 +195,22 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 
   yfs_client::dirinfo info;
   ret = yfs->getdir(parent, info);
-  if (ret != yfs_client::OK)
-    return ret;
+  if (ret != yfs_client::OK) {
+    fuse_reply_err(req, ENOENT);
+    return;
+  }
   
   found = info.name_to_inum.count(name);
 
   if (found){
     e.ino = info.name_to_inum[name];
-    e.attr = extent_protocol::attr::attr() 
+    extent_protocol::attr attr;
+    ret = yfs->getattr(inum, attr);
+    if (ret != yfs_client::OK) {
+      fuse_reply_err(req, ENOENT);
+      return;
+    }
+    e.attr = attr;
     fuse_reply_entry(req, &e);
   }
   else

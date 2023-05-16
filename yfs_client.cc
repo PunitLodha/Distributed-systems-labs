@@ -177,6 +177,29 @@ release:
   return r;
 }
 
+int yfs_client::getattr(inum inum, extent_protocol::attr &attr)
+{
+  int r = OK;
+
+  printf("getfileattr %016llx\n", inum);
+  extent_protocol::attr a;
+  if (ec->getattr(inum, a) != extent_protocol::OK)
+  {
+    r = IOERR;
+    goto release;
+  }
+
+  attr.atime = a.atime;
+  attr.mtime = a.mtime;
+  attr.ctime = a.ctime;
+  attr.size = a.size;
+  printf("getattr %016llx -> sz %llu\n", inum, attr.size);
+
+release:
+
+  return r;
+}
+
 yfs_client::inum
 yfs_client::gen_rand()
 {

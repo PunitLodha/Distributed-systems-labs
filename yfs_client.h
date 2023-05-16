@@ -64,6 +64,7 @@ public:
 
   int getfile(inum, fileinfo &);
   int getdir(inum, dirinfo &);
+  int getattr(inum, extent_protocol::attr &);
   int putfile(inum, fileinfo &);
   int putdir(inum, dirinfo &);
 };
