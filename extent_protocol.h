@@ -5,26 +5,54 @@
 
 #include "rpc.h"
 
-class extent_protocol {
- public:
+class extent_protocol
+{
+public:
   typedef int status;
   typedef unsigned long long extentid_t;
-  enum xxstatus { OK, RPCERR, NOENT, IOERR, FBIG};
-  enum rpc_numbers {
+  enum xxstatus
+  {
+    OK,
+    RPCERR,
+    NOENT,
+    IOERR,
+    FBIG
+  };
+  enum rpc_numbers
+  {
     put = 0x6001,
     get,
     getattr,
     remove
   };
-  static const unsigned int maxextent = 8192*1000;
+  static const unsigned int maxextent = 8192 * 1000;
 
-  struct attr {
+  struct attr
+  {
+    attr() {}
+    attr(
+        unsigned int atime,
+        unsigned int mtime,
+        unsigned int ctime,
+        unsigned int size);
+
     unsigned int atime;
     unsigned int mtime;
     unsigned int ctime;
     unsigned int size;
   };
 };
+
+extent_protocol::attr::attr(unsigned int atime,
+                            unsigned int mtime,
+                            unsigned int ctime,
+                            unsigned int size)
+{
+  this->atime = atime;
+  this->mtime = mtime;
+  this->ctime = ctime;
+  this->size = size
+}
 
 inline unmarshall &
 operator>>(unmarshall &u, extent_protocol::attr &a)
@@ -46,4 +74,4 @@ operator<<(marshall &m, extent_protocol::attr a)
   return m;
 }
 
-#endif 
+#endif

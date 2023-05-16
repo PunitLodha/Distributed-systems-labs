@@ -2,43 +2,59 @@
 #define yfs_client_h
 
 #include <string>
-//#include "yfs_protocol.h"
+// #include "yfs_protocol.h"
 #include "extent_client.h"
-#include <vector>
+#include <unordered_map>
 
-
-  class yfs_client {
+class yfs_client
+{
   extent_client *ec;
- public:
 
+public:
   typedef unsigned long long inum;
-  enum xxstatus { OK, RPCERR, NOENT, IOERR, FBIG };
+  enum xxstatus
+  {
+    OK,
+    RPCERR,
+    NOENT,
+    IOERR,
+    FBIG
+  };
   typedef int status;
 
-  struct fileinfo {
-    unsigned long long size;
+  struct fileinfo
+  {
+    fileinfo(){};
+    fileinfo(unsigned long atime, unsigned long mtime, unsigned long ctime, std::string contents);
+    fileinfo(mode_t mode, std::string name);
+    std::string name;
     unsigned long atime;
     unsigned long mtime;
     unsigned long ctime;
     std::string content;
+    mode_t mode;
+    unsigned long long size;
   };
-  struct dirinfo {
-    dirinfo(unsigned long atime, unsigned long mtime, unsigned long ctime,std::string contents);
-    unsigned long atime;
-    unsigned long mtime;
-    unsigned long ctime;
-    std::list<dirent> entries;
-  };
-  struct dirent {
+  struct dirent
+  {
     std::string name;
     unsigned long long inum;
   };
+  struct dirinfo
+  {
+    dirinfo(){};
+    dirinfo(unsigned long atime, unsigned long mtime, unsigned long ctime, std::string contents);
+    unsigned long atime;
+    unsigned long mtime;
+    unsigned long ctime;
+    std::unordered_map<std::string, unsigned long long> name_to_inum;
+  };
 
- private:
+private:
   static std::string filename(inum);
   static inum n2i(std::string);
- public:
 
+public:
   yfs_client(std::string, std::string);
 
   bool isfile(inum);
@@ -52,4 +68,4 @@
   int putdir(inum, dirinfo &);
 };
 
-#endif 
+#endif
