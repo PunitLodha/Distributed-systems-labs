@@ -84,7 +84,7 @@ void fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int t
   yfs_client::inum inum = ino; // req->in.h.nodeid;
   yfs_client::status ret;
 
-  ret = yfs_client::getfile(inum, current_fileinfo);
+  ret = yfs->getfile(inum, current_fileinfo);
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOENT);
@@ -97,7 +97,7 @@ void fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int t
     current_fileinfo.content.resize(attr->st_size);
     current_fileinfo.size = attr->st_size;
 
-    ret = yfs_client::putfile(inum, current_fileinfo);
+    ret = yfs->putfile(inum, current_fileinfo);
     if (ret != yfs_client::OK)
     {
       fuse_reply_err(req, ENOENT);
@@ -124,11 +124,37 @@ void fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
                      off_t off, struct fuse_file_info *fi)
 {
   // You fill this in
-#if 0
+
+  // Get the current attributes
+  yfs_client::fileinfo current_fileinfo;
+  yfs_client::inum inum = ino;
+  yfs_client::status ret;
+  printf("fuseserver_read %016llx offset: %d, size: %d\n", inum, off, size);
+
+  ret = yfs->getfile(inum, current_fileinfo);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOENT);
+    return;
+  }
+  if (off > current_fileinfo.size)
+  {
+    fuse_reply_err(req, ENOENT);
+    return;
+  }
+  // Read the file contents at the offset in a char buffer
+  char *buf = new char[size];
+  memset(buf, '\0', size);
+  memcpy(buf, current_fileinfo.content.c_str() + off, size);
+  // Send the buffer to the fuse client
   fuse_reply_buf(req, buf, size);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+  delete[] buf;
+
+  // #if 0
+  //   fuse_reply_buf(req, buf, size);
+  // #else
+  //   fuse_reply_err(req, ENOSYS);
+  // #endif
 }
 
 void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
@@ -136,11 +162,49 @@ void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
                       struct fuse_file_info *fi)
 {
   // You fill this in
-#if 0
-  fuse_reply_write(req, bytes_written);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+  // Get the current attributes
+  yfs_client::fileinfo current_fileinfo;
+  yfs_client::inum inum = ino;
+  yfs_client::status ret;
+  printf("fuseserver_write %016llx\n", inum);
+
+  ret = yfs->getfile(inum, current_fileinfo);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOENT);
+    return;
+  }
+
+  std::string contents = current_fileinfo.content;
+  if (off > contents.size())
+  {
+    // resize contents to the offset
+    contents.resize(off);
+    // append the buffer contents to the resized contents
+    contents.append(buf, size);
+  }
+  else
+  {
+    // Write the buffer contents to the file contents at the offset
+    contents.replace(off, size, buf);
+  }
+  current_fileinfo.content = contents;
+  current_fileinfo.size = contents.size();
+  // Update the file contents
+  ret = yfs->putfile(inum, current_fileinfo);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOENT);
+    return;
+  }
+  // Send the number of bytes written to the fuse client
+  fuse_reply_write(req, size);
+
+  // #if 0
+  //   fuse_reply_write(req, bytes_written);
+  // #else
+  //   fuse_reply_err(req, ENOSYS);
+  // #endif
 }
 
 yfs_client::status
