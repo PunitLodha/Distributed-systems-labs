@@ -78,19 +78,44 @@ void fuseserver_getattr(fuse_req_t req, fuse_ino_t ino,
 void fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set, struct fuse_file_info *fi)
 {
   printf("fuseserver_setattr 0x%x\n", to_set);
+
+  // Get the current attributes
+  yfs_client::fileinfo current_fileinfo;
+  yfs_client::inum inum = ino; // req->in.h.nodeid;
+  yfs_client::status ret;
+
+  ret = yfs_client::getfile(inum, current_fileinfo);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOENT);
+    return;
+  }
+
   if (FUSE_SET_ATTR_SIZE & to_set)
   {
     printf("   fuseserver_setattr set size to %zu\n", attr->st_size);
-#if 0
+    current_fileinfo.content.resize(attr->st_size);
+    current_fileinfo.size = attr->st_size;
+
+    ret = yfs_client::putfile(inum, current_fileinfo);
+    if (ret != yfs_client::OK)
+    {
+      fuse_reply_err(req, ENOENT);
+      return;
+    }
+
     struct stat st;
-    // You fill this in
+    st.st_atime = current_fileinfo.atime;
+    st.st_mtime = current_fileinfo.mtime;
+    st.st_ctime = current_fileinfo.ctime;
+    st.st_mode = S_IFREG | 0666;
+    st.st_nlink = 1;
+    st.st_size = current_fileinfo.size;
     fuse_reply_attr(req, &st, 0);
-#else
-    fuse_reply_err(req, ENOSYS);
-#endif
   }
   else
   {
+    // If none of the attribute is to be set then raise an error
     fuse_reply_err(req, ENOSYS);
   }
 }
@@ -216,7 +241,8 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   yfs_client::status ret;
   yfs_client::dirinfo info;
   ret = yfs->getdir(parent, info);
-  if (ret != yfs_client::OK) {
+  if (ret != yfs_client::OK)
+  {
     fuse_reply_err(req, ENOENT);
     return;
   }
@@ -229,7 +255,8 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     printf("\t\tlookup %016lx %s -> %016lx\n", parent, name, e.ino);
     extent_protocol::attr attr;
     ret = yfs->getattr(e.ino, attr);
-    if (ret != yfs_client::OK) {
+    if (ret != yfs_client::OK)
+    {
       fuse_reply_err(req, ENOENT);
       return;
     }
@@ -295,7 +322,8 @@ void fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
   yfs_client::status ret;
   // TODO: make a variable to represent the root directory inum
   ret = yfs->getdir(inum, info);
-  if (ret != yfs_client::OK) {
+  if (ret != yfs_client::OK)
+  {
     fuse_reply_err(req, ENOENT);
     return;
   }
