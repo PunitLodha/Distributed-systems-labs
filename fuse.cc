@@ -18,6 +18,8 @@
 #include <arpa/inet.h>
 #include "yfs_client.h"
 
+#define min(x,y) ((x) < (y) ? (x) : (y))
+
 int myid;
 yfs_client *yfs;
 
@@ -104,6 +106,7 @@ void fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int t
       return;
     }
 
+    // todo might be wrong because putting the file will update time values
     struct stat st;
     st.st_atime = current_fileinfo.atime;
     st.st_mtime = current_fileinfo.mtime;
@@ -137,15 +140,19 @@ void fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
     fuse_reply_err(req, ENOENT);
     return;
   }
-  if (off > current_fileinfo.size)
-  {
-    fuse_reply_err(req, ENOENT);
-    return;
-  }
+  // if (off >= current_fileinfo.size)
+  // {
+  //   fuse_reply_err(req, ENOENT);
+  //   return;
+  // }
+  printf("\t\tcontents read:- %s\n",current_fileinfo.content.c_str());
   // Read the file contents at the offset in a char buffer
   char *buf = new char[size];
   memset(buf, '\0', size);
-  memcpy(buf, current_fileinfo.content.c_str() + off, size);
+  if (off < current_fileinfo.size) {
+    memcpy(buf, current_fileinfo.content.c_str() + off, min(current_fileinfo.size - off, size));
+  }
+  printf("\t\tread contents in buffer:- %s\n",buf);
   // Send the buffer to the fuse client
   fuse_reply_buf(req, buf, size);
   delete[] buf;
@@ -166,7 +173,8 @@ void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
   yfs_client::fileinfo current_fileinfo;
   yfs_client::inum inum = ino;
   yfs_client::status ret;
-  printf("fuseserver_write %016llx\n", inum);
+  printf("fuseserver_write %016llx, size: %d, offset: %d\n", inum, size, off);
+  printf("\t\twrite input: %s\n", buf);
 
   ret = yfs->getfile(inum, current_fileinfo);
   if (ret != yfs_client::OK)
@@ -175,21 +183,34 @@ void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
     return;
   }
 
-  std::string contents = current_fileinfo.content;
-  if (off > contents.size())
-  {
-    // resize contents to the offset
-    contents.resize(off);
-    // append the buffer contents to the resized contents
-    contents.append(buf, size);
+  // if (off >= current_fileinfo.content.size())
+  // {
+  //   printf("\t\tAPPEND: write offset(%d) > current_fileinfo.content.size():(%d)\n",off, current_fileinfo.content.size());
+  //   // resize current_fileinfo.content to the offset
+  //   current_fileinfo.content.resize(off);
+  //   // append the buffer current_fileinfo.content to the resized current_fileinfo.content
+  //   current_fileinfo.content.append(buf, size);
+  // }
+  // else
+  // {
+  //   printf("\t\tREPLACE: write offset(%d) < current_fileinfo.content.size():(%d)\n",off, current_fileinfo.content.size());
+  //   // Write the buffer current_fileinfo.content to the file current_fileinfo.content at the offset
+  //   current_fileinfo.content.resize(off + size);
+  //   current_fileinfo.content.replace(off, size, buf);
+  // }
+  printf("\t\tbefore write size:%d\n", current_fileinfo.size );
+  if ((off + size) >= current_fileinfo.content.size()) {
+    printf("\t\t RESIZE: write offset + size(%d) >= current_fileinfo.content.size():(%d)\n",off+size, current_fileinfo.content.size());
+    current_fileinfo.content.resize(off + size);
+    printf("\t\t new size: %d\n", current_fileinfo.content.size());
   }
-  else
-  {
-    // Write the buffer contents to the file contents at the offset
-    contents.replace(off, size, buf);
-  }
-  current_fileinfo.content = contents;
-  current_fileinfo.size = contents.size();
+  printf("\t\t new size1: %d\n", current_fileinfo.content.size());
+  // current_fileinfo.content.insert(off, replacement_str);
+  std::string replacement_str(buf, size);
+  current_fileinfo.content.replace(off, size, replacement_str);
+  printf("\t\t new size2: %d\n", current_fileinfo.content.size());
+  current_fileinfo.size = current_fileinfo.content.size();
+  printf("\t\tafter write contenrts: %s, size:%d\n", current_fileinfo.content.c_str(), current_fileinfo.size );
   // Update the file contents
   ret = yfs->putfile(inum, current_fileinfo);
   if (ret != yfs_client::OK)
@@ -405,11 +426,14 @@ void fuseserver_open(fuse_req_t req, fuse_ino_t ino,
                      struct fuse_file_info *fi)
 {
   // You fill this in
-#if 0
+  printf("open %016lx\n", ino);
+  printf("\t\topen flags %d\n", fi->flags);
   fuse_reply_open(req, fi);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+// #if 0
+//   fuse_reply_open(req, fi);
+// #else
+//   fuse_reply_err(req, ENOSYS);
+// #endif
 }
 
 void fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,

@@ -21,7 +21,8 @@ yfs_client::fileinfo::fileinfo(mode_t mode, std::string name)
 {
   this->mode = mode;
   this->name = name;
-  this->content = "";
+  // this->content = "";
+  printf("[Create] fileinfo: %s, %d\n", content, content.size());
 }
 
 yfs_client::fileinfo::fileinfo(unsigned long atime, unsigned long mtime, unsigned long ctime, std::string contents)
@@ -33,16 +34,20 @@ yfs_client::fileinfo::fileinfo(unsigned long atime, unsigned long mtime, unsigne
   std::istringstream iss(contents);
   std::string line;
 
+  printf("Trying Deserialize file info\n");
   std::getline(iss, line);
   this->name = line;
+  printf("\t\t Deserialized name\n");
 
   std::getline(iss, line);
-  this->mode = std::stoi(line);
+  printf("\t\t Trying Deserialized mode ... %s\n", line.c_str());
+  printf("\t\t Deserialized mode\n");
 
   while (std::getline(iss, line))
   {
     this->content.append(line);
-    this->content.append("\n");
+    std::cout <<"Deserialize file info:- " << line << std::endl;
+    // this->content.append("\n");
   }
 
   this->size = this->content.size();
@@ -52,7 +57,7 @@ std::ostream &operator<<(std::ostream &os, const yfs_client::fileinfo &fileinfo)
 {
   os << fileinfo.name << "\n"
      << fileinfo.mode << "\n"
-     << fileinfo.content << "\n";
+     << fileinfo.content;
   return os;
 }
 
@@ -125,18 +130,22 @@ int yfs_client::getfile(inum inum, fileinfo &fin)
   extent_protocol::attr a;
   yfs_client::fileinfo temp_fin = fileinfo();
   std::string buf;
+  printf("\t\tgetfileattr %016llx\n", inum);
   if (ec->getattr(inum, a) != extent_protocol::OK)
   {
     r = IOERR;
     goto release;
   }
 
+  printf("\t\tgetfile from extent server %016llx\n", inum);
   if (ec->get(inum, buf) != extent_protocol::OK)
   {
     r = IOERR;
     goto release;
   }
   temp_fin = fileinfo(a.atime, a.mtime, a.ctime, buf);
+  printf("\t\tcreated fileinfo\n");
+
   fin.content = temp_fin.content;
   fin.atime = temp_fin.atime;
   fin.mtime = temp_fin.mtime;
@@ -215,7 +224,7 @@ int yfs_client::putdir(inum parent, dirinfo &dir)
   std::ostringstream ost;
   ost << dir;
   buf = ost.str();
-  if (ec->put(parent, buf) != extent_protocol::OK)
+  if (ec->put(parent, buf, buf.size()) != extent_protocol::OK)
   {
     r = IOERR;
     goto release;
@@ -231,7 +240,8 @@ int yfs_client::putfile(inum file_inum, fileinfo &file)
   std::ostringstream ost;
   ost << file;
   buf = ost.str();
-  if (ec->put(file_inum, buf) != extent_protocol::OK)
+  printf("putfile %016llx -> sz %llu\n", file_inum, file.size);
+  if (ec->put(file_inum, buf, file.size) != extent_protocol::OK)
   {
     r = IOERR;
     goto release;
