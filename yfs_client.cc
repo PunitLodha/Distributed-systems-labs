@@ -249,3 +249,15 @@ int yfs_client::putfile(inum file_inum, fileinfo &file)
 release:
   return r;
 }
+
+int yfs_client::remove(inum file_inum)
+{
+  int r = OK;
+  if (ec->remove(file_inum) != extent_protocol::OK)
+  {
+    r = IOERR;
+    goto release;
+  }
+release:
+  return r;
+}

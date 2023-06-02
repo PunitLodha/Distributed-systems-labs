@@ -264,20 +264,16 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   if (ret != yfs_client::OK)
     return ret;
 
-  extent_protocol::attr attr;
-  ret = yfs->getattr(file_inum, attr);
+  struct stat st;
+  ret = getattr(file_inum, st);
   if (ret != yfs_client::OK)
     return ret;
+
   // TODO: Fix the fuse_entry_param
   e->ino = file_inum;
   e->attr_timeout = 0.0;
   e->entry_timeout = 0.0;
-  e->attr.st_atime = attr.atime;
-  e->attr.st_mtime = attr.mtime;
-  e->attr.st_ctime = attr.ctime;
-  e->attr.st_mode = mode;
-  e->attr.st_nlink = 1;
-  e->attr.st_size = attr.size;
+  e->attr = st;
   return ret;
 }
 
@@ -338,19 +334,14 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   {
     e.ino = info.name_to_inum[name];
     printf("\t\tlookup %016lx %s -> %016lx\n", parent, name, e.ino);
-    extent_protocol::attr attr;
-    ret = yfs->getattr(e.ino, attr);
+    struct stat st;
+    ret = getattr(info.name_to_inum[name], st);
     if (ret != yfs_client::OK)
     {
       fuse_reply_err(req, ENOENT);
       return;
     }
-    e.attr.st_atime = attr.atime;
-    e.attr.st_mtime = attr.mtime;
-    e.attr.st_ctime = attr.ctime;
-    e.attr.st_mode = S_IFREG | 0666;
-    e.attr.st_nlink = 1;
-    e.attr.st_size = attr.size;
+    e.attr = st;
     fuse_reply_entry(req, &e);
   }
   else
@@ -441,21 +432,114 @@ void fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
 {
 
   // You fill this in
-#if 0
+  printf("\t\tmkdir parent:%d, name: %s\n", parent, name);
+
+  yfs_client::inum parent_inum = parent;
+  yfs_client::inum dir_inum = yfs->gen_rand() & ~0x80000000;
+  yfs_client::status ret;
+  yfs_client::dirinfo info;
   struct fuse_entry_param e;
+
+  // Put the new directory in the parent directory
+
+  // 1 - Get parent directory
+  ret = yfs->getdir(parent_inum, info);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOSYS);
+    return;
+  }
+  
+  // 2 - Add new file to the directory
+  info.name_to_inum[name] = dir_inum;
+
+  // 3 - Sent extent server the new parent directory contents
+  ret = yfs->putdir(parent_inum, info);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOSYS);
+    return;
+  }
+
+  yfs_client::dirinfo new_info;
+  // Create the new directory
+  ret = yfs->putdir(dir_inum, new_info);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOSYS);
+    return;
+  }
+
+  struct stat st;
+  ret = getattr(dir_inum, st);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOENT);
+    return;
+  }
+  e.ino = dir_inum;
+  e.attr = st;
+  e.attr_timeout = 0.0;
+  e.entry_timeout = 0.0;
+  printf("\t\tmkdir ino: %d, isdir?: %d\n", e.ino, yfs->isdir(e.ino));
+  printf("\t\tmkdir st_mode: %d\n", e.attr.st_mode);
+  printf("\t\tmkdir st_nlink: %d\n", e.attr.st_nlink);
+  printf("\t\tmkdir st_atime: %d\n", e.attr.st_atime);
+  printf("\t\tmkdir st_ctime: %d\n", e.attr.st_ctime);
+  printf("\t\tmkdir st_mtime: %d\n", e.attr.st_mtime);
   fuse_reply_entry(req, &e);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
 }
 
 void fuseserver_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
 
   // You fill this in
+  printf("\t\tunlink parent:%d, name: %s\n", parent, name);
+
+  yfs_client::inum parent_inum = parent;
+  yfs_client::inum file_inum;
+  yfs_client::status ret;
+  yfs_client::dirinfo info;
+
+  // 1 - Get parent directory
+  ret = yfs->getdir(parent_inum, info);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOSYS);
+    return;
+  }
+
+  // Check if name exists in parent
+  if (info.name_to_inum.count(name) == 0)
+  {
+    fuse_reply_err(req, ENOENT);
+    return;
+  } else {
+    // Remove the file from the parent directory
+    file_inum = info.name_to_inum[name];
+    info.name_to_inum.erase(name);
+  }
+
+  // 2 - Sent extent server the new parent directory contents
+  ret = yfs->putdir(parent_inum, info);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOSYS);
+    return;
+  }
+
+  // 3 - Delete the file
+  ret = yfs->remove(file_inum);
+  if (ret != yfs_client::OK)
+  {
+    fuse_reply_err(req, ENOSYS);
+    return;
+  }
+
+  fuse_reply_err(req, 0);
   // Success:	fuse_reply_err(req, 0);
   // Not found:	fuse_reply_err(req, ENOENT);
-  fuse_reply_err(req, ENOSYS);
+  // fuse_reply_err(req, ENOSYS);
 }
 
 void fuseserver_statfs(fuse_req_t req)

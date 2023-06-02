@@ -62,6 +62,7 @@ for($iters = 0; $iters < 50; $iters++){
     }
 }
 
+printf "passed majortiy!\n";
 dircheck();
 cleanup();
 dircheck();
