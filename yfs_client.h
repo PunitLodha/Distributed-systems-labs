@@ -4,11 +4,13 @@
 #include <string>
 // #include "yfs_protocol.h"
 #include "extent_client.h"
+#include "lock_client.h"
 #include <unordered_map>
 
 class yfs_client
 {
   extent_client *ec;
+  lock_client *lc;
 
 public:
   typedef unsigned long long inum;
@@ -27,13 +29,13 @@ public:
     fileinfo(){};
     fileinfo(unsigned long atime, unsigned long mtime, unsigned long ctime, std::string contents);
     fileinfo(mode_t mode, std::string name);
-    std::string name;         // Name of the file
-    unsigned long atime;      // Access time
-    unsigned long mtime;      // Modification time
-    unsigned long ctime;      //
-    std::string content;      // Actual contents of the file
-    mode_t mode;              // Mode/Permissions of the file
-    unsigned long long size;  // Size of the actual contents
+    std::string name;        // Name of the file
+    unsigned long atime;     // Access time
+    unsigned long mtime;     // Modification time
+    unsigned long ctime;     //
+    std::string content;     // Actual contents of the file
+    mode_t mode;             // Mode/Permissions of the file
+    unsigned long long size; // Size of the actual contents
   };
   struct dirent
   {
@@ -44,10 +46,10 @@ public:
   {
     dirinfo(){};
     dirinfo(unsigned long atime, unsigned long mtime, unsigned long ctime, std::string contents);
-    unsigned long atime;      // Access time
-    unsigned long mtime;      // Modification time
+    unsigned long atime; // Access time
+    unsigned long mtime; // Modification time
     unsigned long ctime;
-    // Maps the name of the children to their inums 
+    // Maps the name of the children to their inums
     std::unordered_map<std::string, unsigned long long> name_to_inum;
   };
 

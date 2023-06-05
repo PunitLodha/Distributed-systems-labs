@@ -13,6 +13,7 @@
 yfs_client::yfs_client(std::string extent_dst, std::string lock_dst)
 {
   ec = new extent_client(extent_dst);
+  lc = new lock_client(lock_dst);
   unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
   srand(seed);
 }
@@ -127,6 +128,9 @@ int yfs_client::getfile(inum inum, fileinfo &fin)
   int r = OK;
 
   printf("getfile %016llx\n", inum);
+
+  lc->acquire(inum);
+
   extent_protocol::attr a;
   yfs_client::fileinfo temp_fin = fileinfo();
   std::string buf;
@@ -154,6 +158,7 @@ int yfs_client::getfile(inum inum, fileinfo &fin)
   printf("getfile %016llx -> sz %llu\n", inum, fin.size);
 
 release:
+  lc->release(inum);
 
   return r;
 }
@@ -161,6 +166,8 @@ release:
 int yfs_client::getdir(inum inum, dirinfo &din)
 {
   int r = OK;
+
+  lc->acquire(inum);
 
   printf("getdir %016llx\n", inum);
   extent_protocol::attr a;
@@ -184,12 +191,15 @@ int yfs_client::getdir(inum inum, dirinfo &din)
   din.name_to_inum = temp_din.name_to_inum;
 
 release:
+  lc->release(inum);
   return r;
 }
 
 int yfs_client::getattr(inum inum, extent_protocol::attr &attr)
 {
   int r = OK;
+
+  lc->acquire(inum);
 
   printf("getfileattr %016llx\n", inum);
   extent_protocol::attr a;
@@ -210,6 +220,7 @@ int yfs_client::getattr(inum inum, extent_protocol::attr &attr)
   printf("getattr %016llx -> sz %u\n", inum, attr.size);
 
 release:
+  lc->release(inum);
 
   return r;
 }
@@ -223,6 +234,9 @@ yfs_client::gen_rand()
 
 int yfs_client::putdir(inum parent, dirinfo &dir)
 {
+
+  lc->acquire(parent);
+
   int r = OK;
   std::string buf;
   std::ostringstream ost;
@@ -234,11 +248,15 @@ int yfs_client::putdir(inum parent, dirinfo &dir)
     goto release;
   }
 release:
+  lc->release(parent);
+
   return r;
 }
 
 int yfs_client::putfile(inum file_inum, fileinfo &file)
 {
+
+  lc->acquire(file_inum);
   int r = OK;
   std::string buf;
   std::ostringstream ost;
@@ -251,11 +269,13 @@ int yfs_client::putfile(inum file_inum, fileinfo &file)
     goto release;
   }
 release:
+  lc->release(file_inum);
   return r;
 }
 
 int yfs_client::remove(inum file_inum)
 {
+  lc->acquire(file_inum);
   int r = OK;
   if (ec->remove(file_inum) != extent_protocol::OK)
   {
@@ -263,5 +283,6 @@ int yfs_client::remove(inum file_inum)
     goto release;
   }
 release:
+  lc->release(file_inum);
   return r;
 }
