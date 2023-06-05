@@ -95,7 +95,7 @@ void fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int t
 
   if (FUSE_SET_ATTR_SIZE & to_set)
   {
-    printf("   fuseserver_setattr set size to %zu\n", attr->st_size);
+    printf("\tfuseserver_setattr set size to %zu\n", attr->st_size);
     current_fileinfo.content.resize(attr->st_size);
     current_fileinfo.size = attr->st_size;
 
@@ -106,7 +106,7 @@ void fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int t
       return;
     }
 
-    // todo might be wrong because putting the file will update time values
+    // TODO: might be wrong because putting the file will update time values
     struct stat st;
     st.st_atime = current_fileinfo.atime;
     st.st_mtime = current_fileinfo.mtime;
@@ -140,11 +140,7 @@ void fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
     fuse_reply_err(req, ENOENT);
     return;
   }
-  // if (off >= current_fileinfo.size)
-  // {
-  //   fuse_reply_err(req, ENOENT);
-  //   return;
-  // }
+
   printf("\t\tcontents read:- %s\n",current_fileinfo.content.c_str());
   // Read the file contents at the offset in a char buffer
   char *buf = new char[size];
@@ -156,12 +152,6 @@ void fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
   // Send the buffer to the fuse client
   fuse_reply_buf(req, buf, size);
   delete[] buf;
-
-  // #if 0
-  //   fuse_reply_buf(req, buf, size);
-  // #else
-  //   fuse_reply_err(req, ENOSYS);
-  // #endif
 }
 
 void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
@@ -183,21 +173,6 @@ void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
     return;
   }
 
-  // if (off >= current_fileinfo.content.size())
-  // {
-  //   printf("\t\tAPPEND: write offset(%d) > current_fileinfo.content.size():(%d)\n",off, current_fileinfo.content.size());
-  //   // resize current_fileinfo.content to the offset
-  //   current_fileinfo.content.resize(off);
-  //   // append the buffer current_fileinfo.content to the resized current_fileinfo.content
-  //   current_fileinfo.content.append(buf, size);
-  // }
-  // else
-  // {
-  //   printf("\t\tREPLACE: write offset(%d) < current_fileinfo.content.size():(%d)\n",off, current_fileinfo.content.size());
-  //   // Write the buffer current_fileinfo.content to the file current_fileinfo.content at the offset
-  //   current_fileinfo.content.resize(off + size);
-  //   current_fileinfo.content.replace(off, size, buf);
-  // }
   printf("\t\tbefore write size:%d\n", current_fileinfo.size );
   if ((off + size) >= current_fileinfo.content.size()) {
     printf("\t\t RESIZE: write offset + size(%d) >= current_fileinfo.content.size():(%d)\n",off+size, current_fileinfo.content.size());
@@ -220,12 +195,6 @@ void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
   }
   // Send the number of bytes written to the fuse client
   fuse_reply_write(req, size);
-
-  // #if 0
-  //   fuse_reply_write(req, bytes_written);
-  // #else
-  //   fuse_reply_err(req, ENOSYS);
-  // #endif
 }
 
 yfs_client::status
@@ -254,7 +223,6 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   ret = yfs->putdir(parent_inum, info);
   if (ret != yfs_client::OK)
     return ret;
-
   printf("\t\t updated new dir\n");
 
   // Create the new file
@@ -269,7 +237,6 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   if (ret != yfs_client::OK)
     return ret;
 
-  // TODO: Fix the fuse_entry_param
   e->ino = file_inum;
   e->attr_timeout = 0.0;
   e->entry_timeout = 0.0;
@@ -381,6 +348,7 @@ void fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 {
   yfs_client::inum inum = ino; // req->in.h.nodeid;
   struct dirbuf b;
+  memset(&b, 0, sizeof(b));
   yfs_client::dirent e;
 
   printf("fuseserver_readdir\n");
@@ -391,12 +359,10 @@ void fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
     return;
   }
 
-  memset(&b, 0, sizeof(b));
-
   // fill in the b data structure using dirbuf_add
   yfs_client::dirinfo info;
   yfs_client::status ret;
-  // TODO: make a variable to represent the root directory inum
+
   ret = yfs->getdir(inum, info);
   if (ret != yfs_client::OK)
   {
@@ -420,11 +386,6 @@ void fuseserver_open(fuse_req_t req, fuse_ino_t ino,
   printf("open %016lx\n", ino);
   printf("\t\topen flags %d\n", fi->flags);
   fuse_reply_open(req, fi);
-// #if 0
-//   fuse_reply_open(req, fi);
-// #else
-//   fuse_reply_err(req, ENOSYS);
-// #endif
 }
 
 void fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
@@ -461,8 +422,8 @@ void fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
     return;
   }
 
-  yfs_client::dirinfo new_info;
   // Create the new directory
+  yfs_client::dirinfo new_info;
   ret = yfs->putdir(dir_inum, new_info);
   if (ret != yfs_client::OK)
   {

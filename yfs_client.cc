@@ -40,6 +40,7 @@ yfs_client::fileinfo::fileinfo(unsigned long atime, unsigned long mtime, unsigne
   // printf("\t\t Deserialized name\n");
 
   std::getline(iss, line);
+  this->mode = std::stoi(line);
   // TODO: The mode is not saved in the structure?
   //  printf("\t\t Trying Deserialized mode ... %s\n", line.c_str());
   //  printf("\t\t Deserialized mode\n");
