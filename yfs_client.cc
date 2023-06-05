@@ -34,19 +34,20 @@ yfs_client::fileinfo::fileinfo(unsigned long atime, unsigned long mtime, unsigne
   std::istringstream iss(contents);
   std::string line;
 
-  printf("Trying Deserialize file info\n");
+  // printf("Trying Deserialize file info\n");
   std::getline(iss, line);
   this->name = line;
-  printf("\t\t Deserialized name\n");
+  // printf("\t\t Deserialized name\n");
 
   std::getline(iss, line);
-  printf("\t\t Trying Deserialized mode ... %s\n", line.c_str());
-  printf("\t\t Deserialized mode\n");
+  // TODO: The mode is not saved in the structure?
+  //  printf("\t\t Trying Deserialized mode ... %s\n", line.c_str());
+  //  printf("\t\t Deserialized mode\n");
 
   while (std::getline(iss, line))
   {
     this->content.append(line);
-    std::cout <<"Deserialize file info:- " << line << std::endl;
+    // std::cout <<"Deserialize file info:- " << line << std::endl;
     // this->content.append("\n");
   }
 
@@ -112,9 +113,7 @@ yfs_client::filename(inum inum)
 
 bool yfs_client::isfile(inum inum)
 {
-  if (inum & 0x80000000)
-    return true;
-  return false;
+  return inum & 0x80000000;
 }
 
 bool yfs_client::isdir(inum inum)
@@ -202,7 +201,11 @@ int yfs_client::getattr(inum inum, extent_protocol::attr &attr)
   attr.atime = a.atime;
   attr.mtime = a.mtime;
   attr.ctime = a.ctime;
+
+  //! This size is not the size of the actual contents. This also includes
+  //! the size of the other meta data
   attr.size = a.size;
+
   printf("getattr %016llx -> sz %u\n", inum, attr.size);
 
 release:

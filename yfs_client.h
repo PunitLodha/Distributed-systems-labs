@@ -27,13 +27,13 @@ public:
     fileinfo(){};
     fileinfo(unsigned long atime, unsigned long mtime, unsigned long ctime, std::string contents);
     fileinfo(mode_t mode, std::string name);
-    std::string name;
-    unsigned long atime;
-    unsigned long mtime;
-    unsigned long ctime;
-    std::string content;
-    mode_t mode;
-    unsigned long long size;
+    std::string name;         // Name of the file
+    unsigned long atime;      // Access time
+    unsigned long mtime;      // Modification time
+    unsigned long ctime;      //
+    std::string content;      // Actual contents of the file
+    mode_t mode;              // Mode/Permissions of the file
+    unsigned long long size;  // Size of the actual contents
   };
   struct dirent
   {
@@ -44,9 +44,10 @@ public:
   {
     dirinfo(){};
     dirinfo(unsigned long atime, unsigned long mtime, unsigned long ctime, std::string contents);
-    unsigned long atime;
-    unsigned long mtime;
+    unsigned long atime;      // Access time
+    unsigned long mtime;      // Modification time
     unsigned long ctime;
+    // Maps the name of the children to their inums 
     std::unordered_map<std::string, unsigned long long> name_to_inum;
   };
 
