@@ -68,7 +68,9 @@ void fuseserver_getattr(fuse_req_t req, fuse_ino_t ino,
   yfs_client::inum inum = ino; // req->in.h.nodeid;
   yfs_client::status ret;
 
+  yfs->lc->acquire(inum);
   ret = getattr(inum, st);
+  yfs->lc->release(inum);
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOENT);
@@ -86,11 +88,13 @@ void fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int t
   yfs_client::inum inum = ino; // req->in.h.nodeid;
   yfs_client::status ret;
 
+  yfs->lc->acquire(inum);
+
   ret = yfs->getfile(inum, current_fileinfo);
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOENT);
-    return;
+    goto release;
   }
 
   if (FUSE_SET_ATTR_SIZE & to_set)
@@ -103,7 +107,7 @@ void fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int t
     if (ret != yfs_client::OK)
     {
       fuse_reply_err(req, ENOENT);
-      return;
+      goto release;
     }
 
     // TODO: might be wrong because putting the file will update time values
@@ -121,6 +125,10 @@ void fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int t
     // If none of the attribute is to be set then raise an error
     fuse_reply_err(req, ENOSYS);
   }
+
+  release:
+    yfs->lc->release(inum);
+    return;
 }
 
 void fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
@@ -132,26 +140,36 @@ void fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
   yfs_client::fileinfo current_fileinfo;
   yfs_client::inum inum = ino;
   yfs_client::status ret;
+  char *buf = new char[size];
   printf("fuseserver_read %016llx offset: %d, size: %d\n", inum, off, size);
 
+  yfs->lc->acquire(inum);
   ret = yfs->getfile(inum, current_fileinfo);
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOENT);
-    return;
+    goto release;
   }
 
-  printf("\t\tcontents read:- %s\n",current_fileinfo.content.c_str());
+  printf("\t\tcontents read:- ");
+  std::cout<<std::hex<<current_fileinfo.content<<std::endl;
   // Read the file contents at the offset in a char buffer
-  char *buf = new char[size];
   memset(buf, '\0', size);
   if (off < current_fileinfo.size) {
     memcpy(buf, current_fileinfo.content.c_str() + off, min(current_fileinfo.size - off, size));
   }
-  printf("\t\tread contents in buffer:- %s\n",buf);
+  printf("\t\tread contents in buffer:- ");
+  for (int i = 0; i < size; i++) {
+    printf("%c", buf[i]);
+  }
+  printf("\n");
   // Send the buffer to the fuse client
   fuse_reply_buf(req, buf, size);
   delete[] buf;
+
+  release:
+    yfs->lc->release(inum);
+    return;
 }
 
 void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
@@ -163,14 +181,17 @@ void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
   yfs_client::fileinfo current_fileinfo;
   yfs_client::inum inum = ino;
   yfs_client::status ret;
+  std::string replacement_str(buf, size);
   printf("fuseserver_write %016llx, size: %d, offset: %d\n", inum, size, off);
-  printf("\t\twrite input: %s\n", buf);
+  printf("\t\twrite input:");
+  std::cout<<" hehe "<<std::hex<<replacement_str<<std::endl;
 
+  yfs->lc->acquire(inum);
   ret = yfs->getfile(inum, current_fileinfo);
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOENT);
-    return;
+    goto release;
   }
 
   printf("\t\tbefore write size:%d\n", current_fileinfo.size );
@@ -181,7 +202,6 @@ void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
   }
   printf("\t\t new size1: %d\n", current_fileinfo.content.size());
   // current_fileinfo.content.insert(off, replacement_str);
-  std::string replacement_str(buf, size);
   current_fileinfo.content.replace(off, size, replacement_str);
   printf("\t\t new size2: %d\n", current_fileinfo.content.size());
   current_fileinfo.size = current_fileinfo.content.size();
@@ -191,10 +211,14 @@ void fuseserver_write(fuse_req_t req, fuse_ino_t ino,
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOENT);
-    return;
+    goto release;
   }
   // Send the number of bytes written to the fuse client
   fuse_reply_write(req, size);
+
+  release:
+    yfs->lc->release(inum);
+    return;
 }
 
 yfs_client::status
@@ -206,12 +230,21 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   yfs_client::inum file_inum = yfs->gen_rand() | 0x80000000;
   yfs_client::status ret;
   yfs_client::dirinfo info;
+  struct stat st;
+  yfs_client::fileinfo fileinfo;
+  yfs_client::status r = yfs_client::OK;
 
-  printf("create %016lx %s\n", parent, name);
+  yfs->lc->acquire(parent_inum);
+  yfs->lc->acquire(file_inum);
+
   // Get parent directory
+  printf("create %016lx %s\n", parent, name);
   ret = yfs->getdir(parent_inum, info);
-  if (ret != yfs_client::OK)
-    return ret;
+  if (ret != yfs_client::OK){
+    r = ret;
+    goto release;
+  }
+
   printf("\t\t found parent dir\n");
   // TODO: check if parent is a directory
   // TODO: check if name already exists in parent
@@ -221,27 +254,36 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
 
   // Sent extent server the new directory contents
   ret = yfs->putdir(parent_inum, info);
-  if (ret != yfs_client::OK)
-    return ret;
+  if (ret != yfs_client::OK){
+    r = ret;
+    goto release;
+  }
   printf("\t\t updated new dir\n");
 
   // Create the new file
-  yfs_client::fileinfo fileinfo = yfs_client::fileinfo(mode, name);
+  fileinfo = yfs_client::fileinfo(mode, name);
   ret = yfs->putfile(file_inum, fileinfo);
   printf("\t\t created new file\n");
-  if (ret != yfs_client::OK)
-    return ret;
+  if (ret != yfs_client::OK){
+    r = ret;
+    goto release;
+  }
 
-  struct stat st;
   ret = getattr(file_inum, st);
-  if (ret != yfs_client::OK)
-    return ret;
+  if (ret != yfs_client::OK){
+    r = ret;
+    goto release;
+  }
 
   e->ino = file_inum;
   e->attr_timeout = 0.0;
   e->entry_timeout = 0.0;
   e->attr = st;
-  return ret;
+
+  release:
+    yfs->lc->release(parent_inum);
+    yfs->lc->release(file_inum);
+    return r;
 }
 
 void fuseserver_create(fuse_req_t req, fuse_ino_t parent, const char *name,
@@ -288,12 +330,16 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   printf("lookup %016lx %s\n", parent, name);
   yfs_client::status ret;
   yfs_client::dirinfo info;
+
+  yfs->lc->acquire(parent);
+
   ret = yfs->getdir(parent, info);
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOENT);
-    return;
+    goto release;
   }
+
   printf("\t\tlookup, directory found\n");
   found = info.name_to_inum.count(name);
   printf("\t\tlookup %016lx %s -> %d\n", parent, name, found);
@@ -302,17 +348,23 @@ void fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     e.ino = info.name_to_inum[name];
     printf("\t\tlookup %016lx %s -> %016lx\n", parent, name, e.ino);
     struct stat st;
+    yfs->lc->acquire(e.ino);
     ret = getattr(info.name_to_inum[name], st);
+    yfs->lc->release(e.ino);
     if (ret != yfs_client::OK)
     {
       fuse_reply_err(req, ENOENT);
-      return;
+      goto release;
     }
     e.attr = st;
     fuse_reply_entry(req, &e);
   }
   else
     fuse_reply_err(req, ENOENT);
+  
+  release:
+    yfs->lc->release(parent);
+    return;
 }
 
 struct dirbuf
@@ -351,6 +403,7 @@ void fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
   memset(&b, 0, sizeof(b));
   yfs_client::dirent e;
 
+
   printf("fuseserver_readdir\n");
 
   if (!yfs->isdir(inum))
@@ -358,6 +411,8 @@ void fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
     fuse_reply_err(req, ENOTDIR);
     return;
   }
+
+  yfs->lc->acquire(inum);
 
   // fill in the b data structure using dirbuf_add
   yfs_client::dirinfo info;
@@ -367,7 +422,7 @@ void fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOENT);
-    return;
+    goto release;
   }
 
   for (auto dirent : info.name_to_inum)
@@ -377,6 +432,9 @@ void fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 
   reply_buf_limited(req, b.p, b.size, off, size);
   free(b.p);
+  release:
+    yfs->lc->release(inum);
+    return;
 }
 
 void fuseserver_open(fuse_req_t req, fuse_ino_t ino,
@@ -399,7 +457,12 @@ void fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   yfs_client::inum dir_inum = yfs->gen_rand() & ~0x80000000;
   yfs_client::status ret;
   yfs_client::dirinfo info;
+  yfs_client::dirinfo new_info;
   struct fuse_entry_param e;
+
+  yfs->lc->acquire(parent_inum);
+  yfs->lc->acquire(dir_inum);
+
 
   // Put the new directory in the parent directory
 
@@ -408,7 +471,7 @@ void fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOSYS);
-    return;
+    goto release;
   }
   
   // 2 - Add new file to the directory
@@ -419,16 +482,15 @@ void fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOSYS);
-    return;
+    goto release;
   }
 
   // Create the new directory
-  yfs_client::dirinfo new_info;
   ret = yfs->putdir(dir_inum, new_info);
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOSYS);
-    return;
+    goto release;
   }
 
   struct stat st;
@@ -436,7 +498,7 @@ void fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOENT);
-    return;
+    goto release;
   }
   e.ino = dir_inum;
   e.attr = st;
@@ -449,6 +511,10 @@ void fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   printf("\t\tmkdir st_ctime: %d\n", e.attr.st_ctime);
   printf("\t\tmkdir st_mtime: %d\n", e.attr.st_mtime);
   fuse_reply_entry(req, &e);
+  release:
+    yfs->lc->release(parent_inum);
+    yfs->lc->release(dir_inum);
+    return;
 }
 
 void fuseserver_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
@@ -462,19 +528,21 @@ void fuseserver_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
   yfs_client::status ret;
   yfs_client::dirinfo info;
 
+  yfs->lc->acquire(parent_inum);
+
   // 1 - Get parent directory
   ret = yfs->getdir(parent_inum, info);
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOSYS);
-    return;
+    goto release;
   }
 
   // Check if name exists in parent
   if (info.name_to_inum.count(name) == 0)
   {
     fuse_reply_err(req, ENOENT);
-    return;
+    goto release;
   } else {
     // Remove the file from the parent directory
     file_inum = info.name_to_inum[name];
@@ -486,21 +554,27 @@ void fuseserver_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOSYS);
-    return;
+    goto release;
   }
 
   // 3 - Delete the file
+  yfs->lc->acquire(file_inum);
   ret = yfs->remove(file_inum);
+  yfs->lc->release(file_inum);
   if (ret != yfs_client::OK)
   {
     fuse_reply_err(req, ENOSYS);
-    return;
+    goto release;
   }
 
   fuse_reply_err(req, 0);
   // Success:	fuse_reply_err(req, 0);
   // Not found:	fuse_reply_err(req, ENOENT);
   // fuse_reply_err(req, ENOSYS);
+
+  release:
+    yfs->lc->release(parent_inum);
+    return;
 }
 
 void fuseserver_statfs(fuse_req_t req)

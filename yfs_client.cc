@@ -46,13 +46,16 @@ yfs_client::fileinfo::fileinfo(unsigned long atime, unsigned long mtime, unsigne
   //  printf("\t\t Trying Deserialized mode ... %s\n", line.c_str());
   //  printf("\t\t Deserialized mode\n");
 
-  while (std::getline(iss, line))
-  {
-    this->content.append(line);
-    // std::cout <<"Deserialize file info:- " << line << std::endl;
-    // this->content.append("\n");
-  }
+  // while (std::getline(iss, line))
+  // {
+  //   this->content.append(line);
+  //   // std::cout <<"Deserialize file info:- " << line << std::endl;
+  //   // this->content.append("\n");
+  // }
+  // Remove the name and mode from contents and store rest in this->content
+  this->content = contents.substr(this->name.size() + 1 + std::to_string(this->mode).size() + 1);
 
+  std::cout << "Deserialize file contents:- " << std::hex << this->content << std::endl;
   this->size = this->content.size();
 }
 
@@ -129,7 +132,7 @@ int yfs_client::getfile(inum inum, fileinfo &fin)
 
   printf("getfile %016llx\n", inum);
 
-  lc->acquire(inum);
+  // lc->acquire(inum);
 
   extent_protocol::attr a;
   yfs_client::fileinfo temp_fin = fileinfo();
@@ -158,7 +161,7 @@ int yfs_client::getfile(inum inum, fileinfo &fin)
   printf("getfile %016llx -> sz %llu\n", inum, fin.size);
 
 release:
-  lc->release(inum);
+  // lc->release(inum);
 
   return r;
 }
@@ -167,7 +170,7 @@ int yfs_client::getdir(inum inum, dirinfo &din)
 {
   int r = OK;
 
-  lc->acquire(inum);
+  // lc->acquire(inum);
 
   printf("getdir %016llx\n", inum);
   extent_protocol::attr a;
@@ -191,7 +194,7 @@ int yfs_client::getdir(inum inum, dirinfo &din)
   din.name_to_inum = temp_din.name_to_inum;
 
 release:
-  lc->release(inum);
+  // lc->release(inum);
   return r;
 }
 
@@ -199,7 +202,7 @@ int yfs_client::getattr(inum inum, extent_protocol::attr &attr)
 {
   int r = OK;
 
-  lc->acquire(inum);
+  // lc->acquire(inum);
 
   printf("getfileattr %016llx\n", inum);
   extent_protocol::attr a;
@@ -220,7 +223,7 @@ int yfs_client::getattr(inum inum, extent_protocol::attr &attr)
   printf("getattr %016llx -> sz %u\n", inum, attr.size);
 
 release:
-  lc->release(inum);
+  // lc->release(inum);
 
   return r;
 }
@@ -235,7 +238,7 @@ yfs_client::gen_rand()
 int yfs_client::putdir(inum parent, dirinfo &dir)
 {
 
-  lc->acquire(parent);
+  // lc->acquire(parent);
 
   int r = OK;
   std::string buf;
@@ -248,7 +251,7 @@ int yfs_client::putdir(inum parent, dirinfo &dir)
     goto release;
   }
 release:
-  lc->release(parent);
+  // lc->release(parent);
 
   return r;
 }
@@ -256,7 +259,7 @@ release:
 int yfs_client::putfile(inum file_inum, fileinfo &file)
 {
 
-  lc->acquire(file_inum);
+  // lc->acquire(file_inum);
   int r = OK;
   std::string buf;
   std::ostringstream ost;
@@ -269,13 +272,13 @@ int yfs_client::putfile(inum file_inum, fileinfo &file)
     goto release;
   }
 release:
-  lc->release(file_inum);
+  // lc->release(file_inum);
   return r;
 }
 
 int yfs_client::remove(inum file_inum)
 {
-  lc->acquire(file_inum);
+  // lc->acquire(file_inum);
   int r = OK;
   if (ec->remove(file_inum) != extent_protocol::OK)
   {
@@ -283,6 +286,6 @@ int yfs_client::remove(inum file_inum)
     goto release;
   }
 release:
-  lc->release(file_inum);
+  // lc->release(file_inum);
   return r;
 }
