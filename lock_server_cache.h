@@ -13,16 +13,16 @@ class lock_server_cache
 {
 public:
   pthread_mutex_t global_lock;
-  std::unordered_map<lock_protocol::lockid_t, std::string> lock_owner;
+  std::unordered_map<lock_protocol::lockid_t, int> lock_owner;
 
-  std::unordered_map<lock_protocol::lockid_t, std::set<lock_protocol::lockid_t>> retry_map;
+  std::unordered_map<lock_protocol::lockid_t, std::set<int>> retry_map;
   std::queue<lock_protocol::lockid_t> retry_queue;
   pthread_cond_t retry_queue_cv;
 
   std::queue<lock_protocol::lockid_t> revoke_queue;
   pthread_cond_t revoke_queue_cv;
 
-  std::unordered_map<int, rpcc*> clients;
+  std::unordered_map<int, rpcc *> clients;
 
   lock_server_cache();
   lock_protocol::status stat(lock_protocol::lockid_t, int &);

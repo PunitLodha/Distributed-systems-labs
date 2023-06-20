@@ -102,6 +102,8 @@ private:
   std::map<lock_protocol::lockid_t, lock_entry> lock_map;
   std::queue<lock_protocol::lockid_t> release_queue;
   pthread_cond_t release_queue_cv;
+  pthread_mutex_t release_queue_mutex;
+  pthread_mutex_t global_lock;
 
 public:
   static int last_port;

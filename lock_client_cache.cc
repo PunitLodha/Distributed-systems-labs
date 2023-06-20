@@ -44,6 +44,8 @@ lock_client_cache::lock_client_cache(std::string xdst,
 
   // Init cv
   pthread_cond_init(&release_queue_cv, NULL);
+  pthread_mutex_init(&release_queue_mutex, NULL);
+  pthread_mutex_init(&global_lock, NULL);
 
   pthread_t th;
   int r = pthread_create(&th, NULL, &releasethread, (void *)this);
@@ -55,10 +57,12 @@ void lock_client_cache::releaser()
 
   // This method should be a continuous loop, waiting to be notified of
   // freed locks that have been revoked by the server, so that it can
-  // send a release RPC. 
-  while(true) {
+  // send a release RPC.
+  while (true)
+  {
     pthread_mutex_lock(&release_queue_mutex);
-    while(release_queue.empty()) {
+    while (release_queue.empty())
+    {
       pthread_cond_wait(&release_queue_cv, &release_queue_mutex);
     }
     lock_protocol::lockid_t lid = release_queue.front();
@@ -75,7 +79,51 @@ void lock_client_cache::releaser()
 lock_protocol::status
 lock_client_cache::acquire(lock_protocol::lockid_t lid)
 {
-  return lock_protocol::RPCERR;
+  pthread_mutex_lock(&global_lock);
+  if (lock_map.find(lid) == lock_map.end())
+  {
+    lock_entry new_entry = lock_entry();
+    new_entry.state = lock_state::NONE;
+    new_entry.lid = lid;
+    lock_map[lid] = new_entry;
+  }
+
+  lock_entry &current_state = lock_map[lid];
+  pthread_mutex_unlock(&global_lock);
+
+  pthread_mutex_lock(&current_state.mutex);
+  while (current_state.state == lock_state::ACQUIRING)
+  {
+    pthread_cond_wait(&current_state.cond, &current_state.mutex);
+  }
+
+  if (current_state.state == lock_state::NONE)
+  {
+    current_state.state = lock_state::ACQUIRING;
+    // pthread_mutex_unlock(&current_state.mutex);
+
+    int r;
+    lock_protocol::status ret = lock_protocol::RETRY;
+
+    while (ret == lock_protocol::RETRY)
+    {
+      ret = cl->call(lock_protocol::acquire, cl->id(), lid, r);
+      if (ret == lock_protocol::RETRY)
+        pthread_cond_wait(&current_state.cond, &current_state.mutex);
+    }
+
+    // pthread_mutex_lock(&current_state.mutex);
+    current_state.state = lock_state::FREE;
+    // pthread_mutex_unlock(&current_state.mutex);
+  }
+
+  // pthread_mutex_lock(&current_state.mutex);
+  while (current_state.state != lock_state::FREE)
+  {
+    pthread_cond_wait(&current_state.cond, &current_state.mutex);
+  }
+  current_state.state = lock_state::LOCKED;
+  pthread_mutex_unlock(&current_state.mutex);
 }
 
 lock_protocol::status
