@@ -5,6 +5,7 @@
 #define lock_client_cache_h
 
 #include <string>
+#include <queue>
 #include "lock_protocol.h"
 #include "rpc.h"
 #include "lock_client.h"
@@ -75,6 +76,32 @@ private:
   int rlock_port;
   std::string hostname;
   std::string id;
+
+  enum lock_state
+  {
+    NONE,
+    FREE,
+    LOCKED,
+    ACQUIRING,
+    RELEASING
+  };
+
+  struct lock_entry
+  {
+    lock_state state;
+    lock_protocol::lockid_t lid;
+    pthread_cond_t cond;
+    pthread_mutex_t mutex;
+    lock_entry() : state(NONE)
+    {
+      pthread_cond_init(&cond, NULL);
+      pthread_mutex_init(&mutex, NULL);
+    }
+  };
+
+  std::map<lock_protocol::lockid_t, lock_entry> lock_map;
+  std::queue<lock_protocol::lockid_t> release_queue;
+  pthread_cond_t release_queue_cv;
 
 public:
   static int last_port;
