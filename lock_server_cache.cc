@@ -9,7 +9,7 @@
 static void *
 revokethread(void *x)
 {
-  lock_server_cache *sc = (lock_server_cache *) x;
+  lock_server_cache *sc = (lock_server_cache *)x;
   sc->revoker();
   return 0;
 }
@@ -17,40 +17,50 @@ revokethread(void *x)
 static void *
 retrythread(void *x)
 {
-  lock_server_cache *sc = (lock_server_cache *) x;
+  lock_server_cache *sc = (lock_server_cache *)x;
   sc->retryer();
   return 0;
 }
 
 lock_server_cache::lock_server_cache()
 {
+  pthread_cond_init(&retry_queue_cv, NULL);
+  pthread_cond_init(&revoke_queue_cv, NULL);
+  pthread_mutex_init(&global_lock, NULL);
+
   pthread_t th;
-  int r = pthread_create(&th, NULL, &revokethread, (void *) this);
-  assert (r == 0);
-  r = pthread_create(&th, NULL, &retrythread, (void *) this);
-  assert (r == 0);
+  int r = pthread_create(&th, NULL, &revokethread, (void *)this);
+  assert(r == 0);
+
+  r = pthread_create(&th, NULL, &retrythread, (void *)this);
+  assert(r == 0);
 }
 
-void
-lock_server_cache::revoker()
+lock_protocol::status lock_server_cache::subscribe(int clt, std::string dst, int &)
+{
+  sockaddr_in dstsock;
+  make_sockaddr(dst.c_str(), &dstsock);
+  rpcc * cl = new rpcc(dstsock);
+  if (cl->bind() < 0)
+  {
+    printf("lock_server: call bind\n");
+  }
+
+  clients[clt] = cl;
+}
+
+void lock_server_cache::revoker()
 {
 
   // This method should be a continuous loop, that sends revoke
   // messages to lock holders whenever another client wants the
   // same lock
-
 }
 
-
-void
-lock_server_cache::retryer()
+void lock_server_cache::retryer()
 {
 
   // This method should be a continuous loop, waiting for locks
   // to be released and then sending retry messages to those who
   // are waiting for it.
-
 }
-
-
-
