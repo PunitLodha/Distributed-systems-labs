@@ -24,6 +24,7 @@ retrythread(void *x)
 
 lock_server_cache::lock_server_cache()
 {
+  printf("lock_server_cache created\n");
   pthread_cond_init(&retry_queue_cv, NULL);
   pthread_cond_init(&revoke_queue_cv, NULL);
   pthread_mutex_init(&global_lock, NULL);
@@ -36,17 +37,28 @@ lock_server_cache::lock_server_cache()
   assert(r == 0);
 }
 
+lock_protocol::status
+lock_server_cache::stat(lock_protocol::lockid_t lid, int &)
+{
+  lock_protocol::status ret = lock_protocol::OK;
+  printf("stat request\n");
+  return ret;
+}
+
 lock_protocol::status lock_server_cache::acquire(int clt, lock_protocol::lockid_t lid, int &)
 {
+  printf("[clt:%d] acquire request: %d\n", clt, lid);
   pthread_mutex_lock(&global_lock);
   if (lock_owner.find(lid) == lock_owner.end())
   {
+    printf("[clt:%d] Creating new Lock %llu\n", clt,lid);
     lock_owner[lid] = clt;
     pthread_mutex_unlock(&global_lock);
     return lock_protocol::OK;
   }
   else
   {
+    printf("[clt:%d] Lock %llu already exists: sending revoke to owner\n", clt,lid);
     retry_map[lid].insert(clt);
     revoke_queue.push(lid);
     pthread_mutex_unlock(&global_lock);
@@ -57,6 +69,7 @@ lock_protocol::status lock_server_cache::acquire(int clt, lock_protocol::lockid_
 
 lock_protocol::status lock_server_cache::release(int clt, lock_protocol::lockid_t lid, int &)
 {
+  printf("[clt:%d] release request: %d\n", clt, lid);
   pthread_mutex_lock(&global_lock);
   lock_owner.erase(lid);
   // If there are clients waiting for this lock, signal them
@@ -68,7 +81,7 @@ lock_protocol::status lock_server_cache::release(int clt, lock_protocol::lockid_
 
 lock_protocol::status lock_server_cache::subscribe(int clt, std::string dst, int &)
 {
-
+  printf("[clt:%d] subscribe request: %s\n", clt, dst.c_str());
   //TODO: Locking needed?
   sockaddr_in dstsock;
   make_sockaddr(dst.c_str(), &dstsock);
@@ -95,7 +108,6 @@ void lock_server_cache::revoker()
     {
       pthread_cond_wait(&revoke_queue_cv, &global_lock);
     }
-
     lock_protocol::lockid_t lid = revoke_queue.front();
     revoke_queue.pop();
     pthread_mutex_unlock(&global_lock);
@@ -103,8 +115,12 @@ void lock_server_cache::revoker()
     int owner = lock_owner[lid];
     rpcc *cl = clients[owner];
     int r;
-    cl->call(rlock_protocol::revoke, lid, r);
+    printf("Sending revoke to lock owner: [%d]%llu\n", owner, lid);
+    int ret = cl->call(rlock_protocol::revoke, lid, r);
+    printf("Sent revoke to lock owner: [%d]%llu, returned: %d\n", owner, lid, ret);
+    assert(ret == lock_protocol::OK);
   }
+  printf("revoker thread exiting\n");
 }
 
 void lock_server_cache::retryer()
@@ -125,6 +141,7 @@ void lock_server_cache::retryer()
     retry_queue.pop();
     std::set<int> waiting_clients = retry_map[lid];
     pthread_mutex_unlock(&global_lock);
+    printf("Sending retry to waiting clients: %llu\n", lid);
 
     for (auto it = waiting_clients.begin(); it != waiting_clients.end(); it++)
     {

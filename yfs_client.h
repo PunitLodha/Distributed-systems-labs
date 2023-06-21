@@ -4,7 +4,7 @@
 #include <string>
 // #include "yfs_protocol.h"
 #include "extent_client.h"
-#include "lock_client.h"
+#include "lock_client_cache.h"
 #include <unordered_map>
 
 class yfs_client
@@ -12,7 +12,7 @@ class yfs_client
   extent_client *ec;
 
 public:
-  lock_client *lc;
+  lock_client_cache *lc;
   typedef unsigned long long inum;
   enum xxstatus
   {
