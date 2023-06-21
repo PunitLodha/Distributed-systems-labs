@@ -73,7 +73,36 @@ void lock_client_cache::releaser()
     int r;
     int ret = cl->call(lock_protocol::release, cl->id(), lid, r);
     assert(ret == lock_protocol::OK);
+
+    lock_entry current_state = get_lock_entry(lid);
+
+    pthread_mutex_lock(&current_state.mutex);
+    current_state.state = lock_state::NONE;
+    pthread_mutex_unlock(&current_state.mutex);
+
+    // Signal other threads that were waiting becuase lock was in RELEASING OR ACQUIRING
+    pthread_cond_broadcast(&current_state.cond);
   }
+}
+
+rlock_protocol::status
+lock_client_cache::retry(int clt, lock_protocol::lockid_t lid, int &r)
+{
+  lock_entry current_state = get_lock_entry(lid);
+  pthread_cond_broadcast(&current_state.cond);
+  return rlock_protocol::OK;
+}
+
+rlock_protocol::status
+lock_client_cache::revoke(int clt, lock_protocol::lockid_t lid, int &r)
+{
+  lock_entry current_state = get_lock_entry(lid);
+
+  pthread_mutex_lock(&current_state.mutex);
+  current_state.state = lock_state::RELEASING;
+  pthread_mutex_unlock(&current_state.mutex);
+
+  return rlock_protocol::OK;
 }
 
 lock_protocol::status
@@ -87,12 +116,12 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid)
     new_entry.lid = lid;
     lock_map[lid] = new_entry;
   }
-
-  lock_entry &current_state = lock_map[lid];
   pthread_mutex_unlock(&global_lock);
 
+  lock_entry current_state = get_lock_entry(lid);
+
   pthread_mutex_lock(&current_state.mutex);
-  while (current_state.state == lock_state::ACQUIRING)
+  while (current_state.state == lock_state::ACQUIRING || current_state.state == lock_state::RELEASING)
   {
     pthread_cond_wait(&current_state.cond, &current_state.mutex);
   }
@@ -124,10 +153,37 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid)
   }
   current_state.state = lock_state::LOCKED;
   pthread_mutex_unlock(&current_state.mutex);
+
+  return lock_protocol::OK;
 }
 
 lock_protocol::status
 lock_client_cache::release(lock_protocol::lockid_t lid)
 {
-  return lock_protocol::RPCERR;
+  lock_entry &current_state = get_lock_entry(lid);
+
+  pthread_mutex_lock(&current_state.mutex);
+  if (current_state.state == lock_state::RELEASING)
+  {
+    pthread_mutex_lock(&release_queue_mutex);
+    release_queue.push(lid);
+    pthread_mutex_unlock(&release_queue_mutex);
+    pthread_cond_broadcast(&release_queue_cv);
+  }
+  else
+  {
+    current_state.state = lock_state::FREE;
+    pthread_cond_broadcast(&current_state.cond);
+  }
+  pthread_mutex_unlock(&current_state.mutex);
+
+  return lock_protocol::OK;
+}
+
+lock_client_cache::lock_entry &lock_client_cache::get_lock_entry(lock_protocol::lockid_t lid)
+{
+  pthread_mutex_lock(&global_lock);
+  lock_entry &current_state = lock_map[lid];
+  pthread_mutex_unlock(&global_lock);
+  return current_state;
 }

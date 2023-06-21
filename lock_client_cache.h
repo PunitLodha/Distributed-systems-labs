@@ -113,6 +113,7 @@ public:
   virtual lock_protocol::status release(lock_protocol::lockid_t);
   rlock_protocol::status retry(int clt, lock_protocol::lockid_t lid, int &r);
   rlock_protocol::status revoke(int clt, lock_protocol::lockid_t lid, int &r);
+  lock_entry &get_lock_entry(lock_protocol::lockid_t lid);
   void releaser();
 };
 #endif
