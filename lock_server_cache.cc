@@ -45,21 +45,22 @@ lock_server_cache::stat(lock_protocol::lockid_t lid, int &)
   return ret;
 }
 
-lock_protocol::status lock_server_cache::acquire(int clt, lock_protocol::lockid_t lid, int &)
+lock_protocol::status lock_server_cache::acquire(int clt, lock_protocol::lockid_t lid, int sequence_id, int &)
 {
-  printf("[clt:%d] acquire request: %d\n", clt, lid);
+  printf("[clt:%d] acquire request: %d with seq#: %d\n", clt, lid, sequence_id);
   pthread_mutex_lock(&global_lock);
+  sequence_store[clt][lid] = sequence_id;
   if (lock_owner.find(lid) == lock_owner.end())
   {
-    printf("[clt:%d] Creating new Lock %llu\n", clt,lid);
+    printf("[clt:%d] Creating new Lock %llu\n", clt, lid);
     lock_owner[lid] = clt;
     pthread_mutex_unlock(&global_lock);
-    printf("[clt:%d] Lock %llu created: sending OK to client\n", clt,lid);
+    printf("[clt:%d] Lock %llu created: sending OK to client\n", clt, lid);
     return lock_protocol::OK;
   }
   else
   {
-    printf("[clt:%d] Lock %llu already exists: sending revoke to owner\n", clt,lid);
+    printf("[clt:%d] Lock %llu already exists: sending revoke to owner\n", clt, lid);
     retry_map[lid].insert(clt);
     revoke_queue.push(lid);
     pthread_mutex_unlock(&global_lock);
@@ -68,10 +69,14 @@ lock_protocol::status lock_server_cache::acquire(int clt, lock_protocol::lockid_
   }
 }
 
-lock_protocol::status lock_server_cache::release(int clt, lock_protocol::lockid_t lid, int &)
+lock_protocol::status lock_server_cache::release(int clt, lock_protocol::lockid_t lid, int sequence_id, int &)
 {
   printf("[clt:%d] release request: %d\n", clt, lid);
   pthread_mutex_lock(&global_lock);
+  if (sequence_store[clt][lid] != sequence_id)
+  {
+    printf("[clt:%d]Haa kaay prakar aahe??", clt);
+  }
   lock_owner.erase(lid);
   // If there are clients waiting for this lock, signal them
   retry_queue.push(lid);
@@ -83,7 +88,7 @@ lock_protocol::status lock_server_cache::release(int clt, lock_protocol::lockid_
 lock_protocol::status lock_server_cache::subscribe(int clt, std::string dst, int &)
 {
   printf("[clt:%d] subscribe request: %s\n", clt, dst.c_str());
-  //TODO: Locking needed?
+  // TODO: Locking needed?
   sockaddr_in dstsock;
   make_sockaddr(dst.c_str(), &dstsock);
   rpcc *cl = new rpcc(dstsock);
@@ -111,13 +116,14 @@ void lock_server_cache::revoker()
     }
     lock_protocol::lockid_t lid = revoke_queue.front();
     revoke_queue.pop();
-    pthread_mutex_unlock(&global_lock);
-
     int owner = lock_owner[lid];
     rpcc *cl = clients[owner];
+    int sequence_id = sequence_store[owner][lid];
+    pthread_mutex_unlock(&global_lock);
+
     int r;
     printf("Sending revoke to lock owner: [%d]%llu\n", owner, lid);
-    int ret = cl->call(rlock_protocol::revoke, lid, r);
+    int ret = cl->call(rlock_protocol::revoke, lid, sequence_id, r);
     printf("Sent revoke to lock owner: [%d]%llu, returned: %d\n", owner, lid, ret);
     assert(ret == lock_protocol::OK);
   }
@@ -147,9 +153,13 @@ void lock_server_cache::retryer()
     for (auto it = waiting_clients.begin(); it != waiting_clients.end(); it++)
     {
       int clt = *it;
+      pthread_mutex_lock(&global_lock);
       rpcc *cl = clients[clt];
+      int sequence_id = sequence_store[clt][lid];
+      pthread_mutex_unlock(&global_lock);
+
       int r;
-      cl->call(rlock_protocol::retry, lid, r);
+      cl->call(rlock_protocol::retry, lid, sequence_id, r);
     }
   }
 }

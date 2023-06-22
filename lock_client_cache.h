@@ -92,10 +92,17 @@ private:
     lock_protocol::lockid_t lid;
     pthread_cond_t cond;
     pthread_mutex_t mutex;
+    bool revoke_present;
+    bool retry_present;
+    int current_sequence_id;
+
     lock_entry() : state(NONE)
     {
       pthread_cond_init(&cond, NULL);
       pthread_mutex_init(&mutex, NULL);
+      revoke_present = false;
+      retry_present = false;
+      current_sequence_id = 0;
     }
   };
 
@@ -111,8 +118,8 @@ public:
   virtual ~lock_client_cache(){};
   lock_protocol::status acquire(lock_protocol::lockid_t);
   virtual lock_protocol::status release(lock_protocol::lockid_t);
-  rlock_protocol::status retry(lock_protocol::lockid_t lid, int &r);
-  rlock_protocol::status revoke(lock_protocol::lockid_t lid, int &r);
+  rlock_protocol::status retry(lock_protocol::lockid_t lid, int sequence_id, int &r);
+  rlock_protocol::status revoke(lock_protocol::lockid_t lid, int sequence_id, int &r);
   lock_entry &get_lock_entry(lock_protocol::lockid_t lid);
   void releaser();
 };

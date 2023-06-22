@@ -23,11 +23,12 @@ public:
   pthread_cond_t revoke_queue_cv;
 
   std::unordered_map<int, rpcc *> clients;
+  std::unordered_map<int, std::unordered_map<lock_protocol::lockid_t, int>> sequence_store;
 
   lock_server_cache();
   lock_protocol::status stat(lock_protocol::lockid_t, int &);
-  lock_protocol::status acquire(int clt, lock_protocol::lockid_t lid, int &);
-  lock_protocol::status release(int clt, lock_protocol::lockid_t lid, int &);
+  lock_protocol::status acquire(int clt, lock_protocol::lockid_t lid, int sequence_id, int &);
+  lock_protocol::status release(int clt, lock_protocol::lockid_t lid, int sequence_id, int &);
   lock_protocol::status subscribe(int clt, std::string dst, int &);
   void revoker();
   void retryer();
