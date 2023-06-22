@@ -54,6 +54,7 @@ lock_protocol::status lock_server_cache::acquire(int clt, lock_protocol::lockid_
     printf("[clt:%d] Creating new Lock %llu\n", clt,lid);
     lock_owner[lid] = clt;
     pthread_mutex_unlock(&global_lock);
+    printf("[clt:%d] Lock %llu created: sending OK to client\n", clt,lid);
     return lock_protocol::OK;
   }
   else

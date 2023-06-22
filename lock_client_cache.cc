@@ -74,7 +74,7 @@ void lock_client_cache::releaser()
     int ret = cl->call(lock_protocol::release, cl->id(), lid, r);
     assert(ret == lock_protocol::OK);
 
-    lock_entry current_state = get_lock_entry(lid);
+    lock_entry &current_state = get_lock_entry(lid);
 
     pthread_mutex_lock(&current_state.mutex);
     current_state.state = lock_state::NONE;
@@ -89,7 +89,7 @@ rlock_protocol::status
 lock_client_cache::retry(lock_protocol::lockid_t lid, int &r)
 {
   printf("[clt:%s] retry request: %llu\n", id.c_str(), lid);
-  lock_entry current_state = get_lock_entry(lid);
+  lock_entry &current_state = get_lock_entry(lid);
   pthread_cond_broadcast(&current_state.cond);
   return rlock_protocol::OK;
 }
@@ -98,22 +98,30 @@ rlock_protocol::status
 lock_client_cache::revoke(lock_protocol::lockid_t lid, int &r)
 {
   printf("[clt:%s] revoke request: %llu\n", id.c_str(), lid);
-  lock_entry current_state = get_lock_entry(lid);
+  lock_entry &current_state = get_lock_entry(lid);
 
   pthread_mutex_lock(&current_state.mutex);
   if(current_state.state == lock_state::NONE)
   {
-    printf("Duplicate revoke, ignoring %llu\n", lid);
+    printf("[clt:%s] Duplicate revoke, ignoring %llu\n", id.c_str(), lid);
     pthread_mutex_unlock(&current_state.mutex);
     return rlock_protocol::OK;
   }
+
+
+
   if (current_state.state == lock_state::FREE) {
-    printf("Lock is free, releasing to server: %llu\n", lid);
+    printf("[clt:%s] Lock is free, releasing to server: %llu\n", id.c_str(), lid);
     pthread_mutex_lock(&release_queue_mutex);
-    current_state.state = lock_state::RELEASING;
     release_queue.push(lid);
     pthread_mutex_unlock(&release_queue_mutex);
     pthread_cond_broadcast(&release_queue_cv);
+  }
+
+  if (current_state.state != lock_state::ACQUIRING) {
+    // TODO: We need to store the sequence number of the revoke
+    printf("[clt:%s] Lock marked for RELEASING\n", id.c_str());
+    current_state.state = lock_state::RELEASING;
   }
   pthread_mutex_unlock(&current_state.mutex);
 
@@ -127,7 +135,7 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid)
   pthread_mutex_lock(&global_lock);
   if (lock_map.find(lid) == lock_map.end())
   {
-    printf("Creating new lock entry for lock: %llu\n", lid);
+    printf("[clt:%s] Creating new lock entry for lock: %llu\n", id.c_str(), lid);
     lock_entry new_entry = lock_entry();
     new_entry.state = lock_state::NONE;
     new_entry.lid = lid;
@@ -135,12 +143,12 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid)
   }
   pthread_mutex_unlock(&global_lock);
 
-  lock_entry current_state = get_lock_entry(lid);
+  lock_entry &current_state = get_lock_entry(lid);
 
   pthread_mutex_lock(&current_state.mutex);
   while (current_state.state == lock_state::ACQUIRING || current_state.state == lock_state::RELEASING)
   {
-    printf("Waiting as lock is in acquiring or releasing: %llu\n", lid);
+    printf("[clt:%s] Waiting as lock is in acquiring or releasing: %llu\n", id.c_str(),lid);
     pthread_cond_wait(&current_state.cond, &current_state.mutex);
   }
 
@@ -154,24 +162,31 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid)
 
     while (ret == lock_protocol::RETRY)
     {
-      printf("Sending acquire request to server: %llu\n", lid);
+      printf("[clt:%s] Sending acquire request to server: %llu\n", id.c_str(),lid);
       ret = cl->call(lock_protocol::acquire, cl->id(), lid, r);
-      if (ret == lock_protocol::RETRY)
+      printf("[clt:%s] Acquire request response: %llu, %d\n", id.c_str(),lid, ret);
+      pthread_mutex_lock(&current_state.mutex);
+      if (ret == lock_protocol::RETRY){
+        printf("[clt:%s] Waiting to retry acquire request: %llu\n", id.c_str(),lid);
         pthread_cond_wait(&current_state.cond, &current_state.mutex);
+      }
+      pthread_mutex_unlock(&current_state.mutex);
     }
 
     pthread_mutex_lock(&current_state.mutex);
+    printf("[clt:%s] Lock acquired from server Setting to FREE: %llu\n", id.c_str(),lid);
     current_state.state = lock_state::FREE;
   }
 
   while (current_state.state != lock_state::FREE)
   {
-    printf("Waiting as lock is not free: %llu\n", lid);
+    printf("[clt:%s] Waiting as lock is not free: %llu\n", id.c_str(),lid);
     pthread_cond_wait(&current_state.cond, &current_state.mutex);
   }
   current_state.state = lock_state::LOCKED;
-  pthread_mutex_unlock(&current_state.mutex);
 
+  printf("[clt:%s] Lock acquired: %llu, lock_state: %d, curr_state: %d\n", id.c_str(),lid, lock_map[lid].state, current_state.state);
+  pthread_mutex_unlock(&current_state.mutex);
   return lock_protocol::OK;
 }
 
@@ -184,7 +199,7 @@ lock_client_cache::release(lock_protocol::lockid_t lid)
   pthread_mutex_lock(&current_state.mutex);
   if (current_state.state == lock_state::RELEASING)
   {
-    printf("Lock is in releasing state, adding to release queue: %llu\n", lid);
+    printf("[clt:%s] Lock is in releasing state, adding to release queue: %llu\n", id.c_str(),lid);
     pthread_mutex_lock(&release_queue_mutex);
     release_queue.push(lid);
     pthread_mutex_unlock(&release_queue_mutex);
@@ -192,13 +207,13 @@ lock_client_cache::release(lock_protocol::lockid_t lid)
   }
   else
   {
-    printf("Lock released to client cache: %llu\n", lid);
+    printf("[clt:%s] Lock released to client cache: %llu\n", id.c_str(),lid);
     current_state.state = lock_state::FREE;
     pthread_cond_broadcast(&current_state.cond);
   }
   pthread_mutex_unlock(&current_state.mutex);
 
-
+  printf("[clt:%s] Lock released: %llu\n", id.c_str(),lid);
   return lock_protocol::OK;
 }
 

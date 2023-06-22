@@ -20,7 +20,10 @@ yfs_client::yfs_client(std::string extent_dst, std::string lock_dst)
 
 yfs_client::fileinfo::fileinfo(mode_t mode, std::string name)
 {
+  printf("hello haha\n");
+  printf("[Create] fileinfo: %s, %d\n", name.c_str(), mode);
   this->mode = mode;
+  printf("\tfileinfo mode is now: %d\n", mode);
   this->name = name;
   // this->content = "";
   printf("[Create] fileinfo: %s, %d\n", content, content.size());
@@ -41,6 +44,7 @@ yfs_client::fileinfo::fileinfo(unsigned long atime, unsigned long mtime, unsigne
   // printf("\t\t Deserialized name\n");
 
   std::getline(iss, line);
+  printf("\t\t Trying to stoi mode ... %s\n", line);
   this->mode = std::stoi(line);
   // TODO: The mode is not saved in the structure?
   //  printf("\t\t Trying Deserialized mode ... %s\n", line.c_str());
@@ -56,11 +60,13 @@ yfs_client::fileinfo::fileinfo(unsigned long atime, unsigned long mtime, unsigne
   this->content = contents.substr(this->name.size() + 1 + std::to_string(this->mode).size() + 1);
 
   std::cout << "Deserialize file contents:- " << std::hex << this->content << std::endl;
+  printf("\t\t Deserialized mode: %d\n", this->mode);
   this->size = this->content.size();
 }
 
 std::ostream &operator<<(std::ostream &os, const yfs_client::fileinfo &fileinfo)
 {
+  printf("Serializing file info, mode is : %d\n", fileinfo.mode);
   os << fileinfo.name << "\n"
      << fileinfo.mode << "\n"
      << fileinfo.content;
@@ -158,6 +164,8 @@ int yfs_client::getfile(inum inum, fileinfo &fin)
   fin.mtime = temp_fin.mtime;
   fin.ctime = temp_fin.ctime;
   fin.size = temp_fin.size;
+  fin.mode = temp_fin.mode;
+  fin.name = temp_fin.name;
   printf("getfile %016llx -> sz %llu\n", inum, fin.size);
 
 release:
