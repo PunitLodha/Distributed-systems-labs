@@ -3,6 +3,7 @@
 
 #include "lock_client_cache.h"
 #include "rpc.h"
+#include "jsl_log.h"
 #include <sstream>
 #include <iostream>
 #include <stdio.h>
@@ -30,7 +31,7 @@ lock_client_cache::lock_client_cache(std::string xdst,
   host << hname << ":" << rlock_port;
   id = host.str();
   last_port = rlock_port;
-  printf("lock_client_cache: %s\n", id.c_str());
+  jsl_log(JSL_DBG_3, "lock_client_cache: %s\n", id.c_str());
 
   rpcs *rlsrpc = new rpcs(rlock_port);
   /* register RPC handlers with rlsrpc */
@@ -68,47 +69,49 @@ void lock_client_cache::releaser()
     lock_protocol::lockid_t lid = release_queue.front();
     release_queue.pop();
     pthread_mutex_unlock(&release_queue_mutex);
-    printf("[clt:%s] releasing the lock to server: %llu\n", id.c_str(), lid);
+    int sequence_id = get_lock_entry(lid).current_sequence_id;
     // Send release RPC
     int r;
-    int ret = cl->call(lock_protocol::release, cl->id(), lid, r);
+    int ret = cl->call(lock_protocol::release, cl->id(), lid, sequence_id, r);
     assert(ret == lock_protocol::OK);
+    jsl_log(JSL_DBG_4, "[clt:%s] releasing the lock to server: %llu\n", id.c_str(), lid);
 
     lock_entry &current_state = get_lock_entry(lid);
 
     pthread_mutex_lock(&current_state.mutex);
     current_state.state = lock_state::NONE;
-    current_state.current_sequence_id += 1;
-    pthread_mutex_unlock(&current_state.mutex);
 
     // Signal other threads that were waiting becuase lock was in RELEASING OR ACQUIRING
     pthread_cond_broadcast(&current_state.cond);
+    pthread_mutex_unlock(&current_state.mutex);
   }
 }
 
 rlock_protocol::status
 lock_client_cache::retry(lock_protocol::lockid_t lid, int sequence_id, int &r)
 {
-  printf("[clt:%s] retry request: %llu\n with sequence_id: %d", id.c_str(), lid, sequence_id);
+  jsl_log(JSL_DBG_4, "[clt:%s] retry request: %llu\n with sequence_id: %d", id.c_str(), lid, sequence_id);
   lock_entry &current_state = get_lock_entry(lid);
   if (sequence_id == current_state.current_sequence_id)
   {
     current_state.retry_present = true;
   }
+  pthread_mutex_lock(&current_state.mutex);
   pthread_cond_broadcast(&current_state.cond);
+  pthread_mutex_unlock(&current_state.mutex);
   return rlock_protocol::OK;
 }
 
 rlock_protocol::status
 lock_client_cache::revoke(lock_protocol::lockid_t lid, int sequence_id, int &r)
 {
-  printf("[clt:%s] revoke request: %llu\n", id.c_str(), lid);
+  jsl_log(JSL_DBG_4, "[clt:%s] revoke request: %llu\n", id.c_str(), lid);
   lock_entry &current_state = get_lock_entry(lid);
 
   pthread_mutex_lock(&current_state.mutex);
   if (current_state.current_sequence_id > sequence_id)
   {
-    printf("[clt:%s] Duplicate revoke, ignoring %llu\n", id.c_str(), lid);
+    jsl_log(JSL_DBG_4, "[clt:%s] Duplicate revoke, ignoring %llu\n", id.c_str(), lid);
     pthread_mutex_unlock(&current_state.mutex);
     return rlock_protocol::OK;
   }
@@ -120,17 +123,17 @@ lock_client_cache::revoke(lock_protocol::lockid_t lid, int sequence_id, int &r)
 
     if (current_state.state == lock_state::FREE)
     {
-      printf("[clt:%s] Lock is free, releasing to server: %llu\n", id.c_str(), lid);
+      jsl_log(JSL_DBG_4, "[clt:%s] Lock is free, releasing to server: %llu\n", id.c_str(), lid);
       pthread_mutex_lock(&release_queue_mutex);
       release_queue.push(lid);
-      pthread_mutex_unlock(&release_queue_mutex);
       pthread_cond_broadcast(&release_queue_cv);
+      pthread_mutex_unlock(&release_queue_mutex);
     }
 
     if (current_state.state != lock_state::ACQUIRING)
     {
       // TODO: We need to store the sequence number of the revoke
-      printf("[clt:%s] Lock marked for RELEASING\n", id.c_str());
+      jsl_log(JSL_DBG_4, "[clt:%s] Lock marked for RELEASING\n", id.c_str());
       current_state.state = lock_state::RELEASING;
     }
     pthread_mutex_unlock(&current_state.mutex);
@@ -142,11 +145,11 @@ lock_client_cache::revoke(lock_protocol::lockid_t lid, int sequence_id, int &r)
 lock_protocol::status
 lock_client_cache::acquire(lock_protocol::lockid_t lid)
 {
-  printf("[clt:%s] acquire request: %llu\n", id.c_str(), lid);
+  jsl_log(JSL_DBG_4, "[clt:%s] acquire request: %llu\n", id.c_str(), lid);
   pthread_mutex_lock(&global_lock);
   if (lock_map.find(lid) == lock_map.end())
   {
-    printf("[clt:%s] Creating new lock entry for lock: %llu\n", id.c_str(), lid);
+    jsl_log(JSL_DBG_4, "[clt:%s] Creating new lock entry for lock: %llu\n", id.c_str(), lid);
     lock_entry new_entry = lock_entry();
     new_entry.state = lock_state::NONE;
     new_entry.lid = lid;
@@ -159,13 +162,14 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid)
   pthread_mutex_lock(&current_state.mutex);
   while (current_state.state == lock_state::ACQUIRING || current_state.state == lock_state::RELEASING)
   {
-    printf("[clt:%s] Waiting as lock is in acquiring or releasing: %llu\n", id.c_str(), lid);
+    jsl_log(JSL_DBG_4, "[clt:%s] Waiting as lock is in acquiring or releasing: %llu\n", id.c_str(), lid);
     pthread_cond_wait(&current_state.cond, &current_state.mutex);
   }
 
   if (current_state.state == lock_state::NONE)
   {
     current_state.state = lock_state::ACQUIRING;
+    int sequence_id = current_state.current_sequence_id;
     pthread_mutex_unlock(&current_state.mutex);
 
     int r;
@@ -173,16 +177,16 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid)
 
     while (ret == lock_protocol::RETRY)
     {
-      printf("[clt:%s] Sending acquire request to server: %llu\n", id.c_str(), lid);
+      jsl_log(JSL_DBG_4, "[clt:%s] Sending acquire request to server: %llu\n", id.c_str(), lid);
 
       // TODO: Send the sequence number along with the call
-      ret = cl->call(lock_protocol::acquire, cl->id(), lid, r);
+      ret = cl->call(lock_protocol::acquire, cl->id(), lid, sequence_id, r);
 
-      printf("[clt:%s] Acquire request response: %llu, %d\n", id.c_str(), lid, ret);
+      jsl_log(JSL_DBG_4, "[clt:%s] Acquire request response: %llu, %d\n", id.c_str(), lid, ret);
       pthread_mutex_lock(&current_state.mutex);
-      if (ret == lock_protocol::RETRY || !current_state.retry_present)
+      if (ret == lock_protocol::RETRY && !current_state.retry_present)
       {
-        printf("[clt:%s] Waiting to retry acquire request: %llu\n", id.c_str(), lid);
+        jsl_log(JSL_DBG_4, "[clt:%s] Waiting to retry acquire request: %llu\n", id.c_str(), lid);
         pthread_cond_wait(&current_state.cond, &current_state.mutex);
       }
       current_state.retry_present = false;
@@ -190,22 +194,24 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid)
     }
 
     pthread_mutex_lock(&current_state.mutex);
-    printf("[clt:%s] Lock acquired from server Setting to FREE: %llu\n", id.c_str(), lid);
+    jsl_log(JSL_DBG_4, "[clt:%s] Lock acquired from server Setting to FREE: %llu\n", id.c_str(), lid);
     current_state.state = lock_state::FREE;
   }
 
   while (current_state.state != lock_state::FREE)
   {
-    printf("[clt:%s] Waiting as lock is not free: %llu\n", id.c_str(), lid);
+    jsl_log(JSL_DBG_4, "[clt:%s] Waiting as lock is not free: %llu\n", id.c_str(), lid);
     pthread_cond_wait(&current_state.cond, &current_state.mutex);
   }
 
   current_state.state = lock_state::LOCKED;
 
-  if (current_state.revoke_present)
+  if (current_state.revoke_present) {
     current_state.state = lock_state::RELEASING;
+    current_state.revoke_present = false;
+  }
 
-  printf("[clt:%s] Lock acquired: %llu, lock_state: %d, curr_state: %d\n", id.c_str(), lid, lock_map[lid].state, current_state.state);
+  jsl_log(JSL_DBG_4, "[clt:%s] Lock acquired: %llu, lock_state: %d, curr_state: %d\n", id.c_str(), lid, lock_map[lid].state, current_state.state);
   pthread_mutex_unlock(&current_state.mutex);
   return lock_protocol::OK;
 }
@@ -213,27 +219,30 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid)
 lock_protocol::status
 lock_client_cache::release(lock_protocol::lockid_t lid)
 {
-  printf("[clt:%s] release request: %llu\n", id.c_str(), lid);
+  jsl_log(JSL_DBG_4, "[clt:%s] release request: %llu\n", id.c_str(), lid);
   lock_entry &current_state = get_lock_entry(lid);
 
   pthread_mutex_lock(&current_state.mutex);
   if (current_state.state == lock_state::RELEASING)
   {
-    printf("[clt:%s] Lock is in releasing state, adding to release queue: %llu\n", id.c_str(), lid);
+    jsl_log(JSL_DBG_4, "[clt:%s] Lock is in releasing state, adding to release queue: %llu\n", id.c_str(), lid);
     pthread_mutex_lock(&release_queue_mutex);
     release_queue.push(lid);
-    pthread_mutex_unlock(&release_queue_mutex);
+    current_state.current_sequence_id += 1;
+    current_state.retry_present = false;
+    current_state.revoke_present = false;
     pthread_cond_broadcast(&release_queue_cv);
+    pthread_mutex_unlock(&release_queue_mutex);
   }
   else
   {
-    printf("[clt:%s] Lock released to client cache: %llu\n", id.c_str(), lid);
+    jsl_log(JSL_DBG_4, "[clt:%s] Lock released to client cache: %llu\n", id.c_str(), lid);
     current_state.state = lock_state::FREE;
     pthread_cond_broadcast(&current_state.cond);
   }
   pthread_mutex_unlock(&current_state.mutex);
 
-  printf("[clt:%s] Lock released: %llu\n", id.c_str(), lid);
+  jsl_log(JSL_DBG_4, "[clt:%s] Lock is ready for release: %llu\n", id.c_str(), lid);
   return lock_protocol::OK;
 }
 

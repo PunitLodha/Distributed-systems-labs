@@ -1,6 +1,7 @@
 // the caching lock server implementation
 
 #include "lock_server_cache.h"
+#include "jsl_log.h"
 #include <sstream>
 #include <stdio.h>
 #include <unistd.h>
@@ -24,7 +25,7 @@ retrythread(void *x)
 
 lock_server_cache::lock_server_cache()
 {
-  printf("lock_server_cache created\n");
+  jsl_log(JSL_DBG_3, "lock_server_cache created\n");
   pthread_cond_init(&retry_queue_cv, NULL);
   pthread_cond_init(&revoke_queue_cv, NULL);
   pthread_mutex_init(&global_lock, NULL);
@@ -41,60 +42,65 @@ lock_protocol::status
 lock_server_cache::stat(lock_protocol::lockid_t lid, int &)
 {
   lock_protocol::status ret = lock_protocol::OK;
-  printf("stat request\n");
+  jsl_log(JSL_DBG_3, "stat request\n");
   return ret;
 }
 
 lock_protocol::status lock_server_cache::acquire(int clt, lock_protocol::lockid_t lid, int sequence_id, int &)
 {
-  printf("[clt:%d] acquire request: %d with seq#: %d\n", clt, lid, sequence_id);
+  jsl_log(JSL_DBG_4, "[clt:%d] acquire request: %d with seq#: %d\n", clt, lid, sequence_id);
   pthread_mutex_lock(&global_lock);
   sequence_store[clt][lid] = sequence_id;
   if (lock_owner.find(lid) == lock_owner.end())
   {
-    printf("[clt:%d] Creating new Lock %llu\n", clt, lid);
+    jsl_log(JSL_DBG_4, "[clt:%d] Creating new Lock %llu\n", clt, lid);
     lock_owner[lid] = clt;
     pthread_mutex_unlock(&global_lock);
-    printf("[clt:%d] Lock %llu created: sending OK to client\n", clt, lid);
+    jsl_log(JSL_DBG_4, "[clt:%d] Lock %llu created: sending OK to client\n", clt, lid);
     return lock_protocol::OK;
   }
   else
   {
-    printf("[clt:%d] Lock %llu already exists: sending revoke to owner\n", clt, lid);
+    jsl_log(JSL_DBG_4, "[clt:%d] Lock %llu already exists: sending revoke to owner\n", clt, lid);
     retry_map[lid].insert(clt);
     revoke_queue.push(lid);
-    pthread_mutex_unlock(&global_lock);
     pthread_cond_signal(&revoke_queue_cv);
+    pthread_mutex_unlock(&global_lock);
+
     return lock_protocol::RETRY;
   }
 }
 
 lock_protocol::status lock_server_cache::release(int clt, lock_protocol::lockid_t lid, int sequence_id, int &)
 {
-  printf("[clt:%d] release request: %d\n", clt, lid);
+  jsl_log(JSL_DBG_4, "[clt:%d] release request: %d\n", clt, lid);
   pthread_mutex_lock(&global_lock);
+
   if (sequence_store[clt][lid] != sequence_id)
   {
-    printf("[clt:%d]Haa kaay prakar aahe??", clt);
+    jsl_log(JSL_DBG_4, "[clt:%d]Haa kaay prakar aahe?? expected: %d, actual: %d", clt, sequence_store[clt][lid], sequence_id);
   }
   lock_owner.erase(lid);
   // If there are clients waiting for this lock, signal them
   retry_queue.push(lid);
-  pthread_mutex_unlock(&global_lock);
+
   pthread_cond_signal(&retry_queue_cv);
+  pthread_mutex_unlock(&global_lock);
+
+  jsl_log(JSL_DBG_4, "[clt:%d] Lock %llu released\n", clt, lid);
   return lock_protocol::OK;
 }
 
 lock_protocol::status lock_server_cache::subscribe(int clt, std::string dst, int &)
 {
-  printf("[clt:%d] subscribe request: %s\n", clt, dst.c_str());
+  jsl_log(JSL_DBG_4, "[clt:%d] subscribe request: %s\n", clt, dst.c_str());
   // TODO: Locking needed?
   sockaddr_in dstsock;
   make_sockaddr(dst.c_str(), &dstsock);
   rpcc *cl = new rpcc(dstsock);
   if (cl->bind() < 0)
   {
-    printf("lock_server: call bind\n");
+    jsl_log(JSL_DBG_4, "lock_server: call bind\n");
   }
 
   clients[clt] = cl;
@@ -110,24 +116,33 @@ void lock_server_cache::revoker()
   while (true)
   {
     pthread_mutex_lock(&global_lock);
+
     while (revoke_queue.empty())
     {
       pthread_cond_wait(&revoke_queue_cv, &global_lock);
     }
     lock_protocol::lockid_t lid = revoke_queue.front();
     revoke_queue.pop();
+
+    if (lock_owner.find(lid) == lock_owner.end())
+    {
+      jsl_log(JSL_DBG_4, "Lock %llu does not have a owner\n", lid);
+      pthread_mutex_unlock(&global_lock);
+      continue;
+    }
     int owner = lock_owner[lid];
     rpcc *cl = clients[owner];
+
     int sequence_id = sequence_store[owner][lid];
     pthread_mutex_unlock(&global_lock);
 
     int r;
-    printf("Sending revoke to lock owner: [%d]%llu\n", owner, lid);
+    jsl_log(JSL_DBG_4, "Sending revoke to lock owner: [%d]%llu\n", owner, lid);
     int ret = cl->call(rlock_protocol::revoke, lid, sequence_id, r);
-    printf("Sent revoke to lock owner: [%d]%llu, returned: %d\n", owner, lid, ret);
+    jsl_log(JSL_DBG_4, "Sent revoke to lock owner: [%d]%llu, returned: %d\n", owner, lid, ret);
     assert(ret == lock_protocol::OK);
   }
-  printf("revoker thread exiting\n");
+  jsl_log(JSL_DBG_4, "revoker thread exiting\n");
 }
 
 void lock_server_cache::retryer()
@@ -139,6 +154,7 @@ void lock_server_cache::retryer()
   while (true)
   {
     pthread_mutex_lock(&global_lock);
+
     while (retry_queue.empty())
     {
       pthread_cond_wait(&retry_queue_cv, &global_lock);
@@ -148,18 +164,24 @@ void lock_server_cache::retryer()
     retry_queue.pop();
     std::set<int> waiting_clients = retry_map[lid];
     pthread_mutex_unlock(&global_lock);
-    printf("Sending retry to waiting clients: %llu\n", lid);
+
+    jsl_log(JSL_DBG_4, "Sending retry to waiting clients: %llu\n", lid);
 
     for (auto it = waiting_clients.begin(); it != waiting_clients.end(); it++)
     {
       int clt = *it;
+      jsl_log(JSL_DBG_4, "[clt:%d] Preparing to Send retry to client: %d\n", *it, clt);
       pthread_mutex_lock(&global_lock);
       rpcc *cl = clients[clt];
       int sequence_id = sequence_store[clt][lid];
       pthread_mutex_unlock(&global_lock);
+      jsl_log(JSL_DBG_4, "[clt:%d] Sending retry to client: %d\n", *it, clt);
 
       int r;
-      cl->call(rlock_protocol::retry, lid, sequence_id, r);
+      int ret = cl->call(rlock_protocol::retry, lid, sequence_id, r);
+      jsl_log(JSL_DBG_4, "I dont reach here...");
+      assert(ret == rlock_protocol::OK);
+      jsl_log(JSL_DBG_4, "[clt:%d] Sent retry to client: %d\n", *it, clt);
     }
   }
 }

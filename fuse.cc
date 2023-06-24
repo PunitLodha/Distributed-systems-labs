@@ -17,6 +17,7 @@
 #include <assert.h>
 #include <arpa/inet.h>
 #include "yfs_client.h"
+#include "jsl_log.h"
 
 #define min(x,y) ((x) < (y) ? (x) : (y))
 
@@ -611,7 +612,7 @@ int main(int argc, char *argv[])
   srandom(getpid());
 
   myid = random();
-
+  jsl_set_debug(4);
   yfs = new yfs_client(argv[2], argv[3]);
 
   fuseserver_oper.getattr = fuseserver_getattr;
