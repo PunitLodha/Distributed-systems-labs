@@ -109,7 +109,7 @@ lock_client_cache::revoke(lock_protocol::lockid_t lid, int sequence_id, int &r)
   lock_entry &current_state = get_lock_entry(lid);
 
   pthread_mutex_lock(&current_state.mutex);
-  if (current_state.current_sequence_id > sequence_id)
+  if (current_state.current_sequence_id > sequence_id || current_state.state == lock_state::NONE)
   {
     jsl_log(JSL_DBG_4, "[clt:%s] Duplicate revoke, ignoring %llu\n", id.c_str(), lid);
     pthread_mutex_unlock(&current_state.mutex);
@@ -133,7 +133,7 @@ lock_client_cache::revoke(lock_protocol::lockid_t lid, int sequence_id, int &r)
     if (current_state.state != lock_state::ACQUIRING)
     {
       // TODO: We need to store the sequence number of the revoke
-      jsl_log(JSL_DBG_4, "[clt:%s] Lock marked for RELEASING\n", id.c_str());
+      jsl_log(JSL_DBG_4, "[clt:%s] Lock marked for RELEASING, lock was in state: %d\n", id.c_str(), current_state.state);
       current_state.state = lock_state::RELEASING;
     }
     pthread_mutex_unlock(&current_state.mutex);
