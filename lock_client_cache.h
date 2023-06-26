@@ -85,6 +85,7 @@ private:
     ACQUIRING,
     RELEASING
   };
+   
 
   struct lock_entry
   {
