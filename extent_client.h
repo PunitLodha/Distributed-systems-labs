@@ -5,9 +5,10 @@
 
 #include <string>
 #include "extent_protocol.h"
+#include "lock_client_cache.h"
 #include "rpc.h"
 
-class extent_client {
+class extent_client: lock_release_user  {
  private:
   rpcc *cl;
 
@@ -20,6 +21,7 @@ class extent_client {
 				  extent_protocol::attr &a);
   extent_protocol::status put(extent_protocol::extentid_t eid, std::string buf, int content_size);
   extent_protocol::status remove(extent_protocol::extentid_t eid);
+  void dorelease(lock_protocol::lockid_t) {};
 };
 
 #endif 
