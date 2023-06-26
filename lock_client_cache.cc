@@ -72,6 +72,7 @@ void lock_client_cache::releaser()
     int sequence_id = get_lock_entry(lid).current_sequence_id;
     // Send release RPC
     int r;
+    lu->dorelease(lid);
     int ret = cl->call(lock_protocol::release, cl->id(), lid, sequence_id, r);
     assert(ret == lock_protocol::OK);
     jsl_log(JSL_DBG_4, "[clt:%s] releasing the lock to server: %llu\n", id.c_str(), lid);

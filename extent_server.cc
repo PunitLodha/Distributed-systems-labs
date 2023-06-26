@@ -9,11 +9,19 @@
 #include <fcntl.h>
 #include <chrono>
 
-extent_server::extent_server() {
+extent_server::extent_server()
+{
   extent_map[1] = extent();
 }
 
-int extent_server::put(extent_protocol::extentid_t id, std::string buf, int content_size, int &)
+int extent_server::put(
+    extent_protocol::extentid_t id,
+    std::string buf,
+    int atime,
+    int ctime,
+    int mtime,
+    int content_size,
+    int &)
 {
   printf("[extent_server]Putting data for extentid: %llu\n", id);
   pthread_mutex_lock(&extent_map_lock);
@@ -26,10 +34,9 @@ int extent_server::put(extent_protocol::extentid_t id, std::string buf, int cont
   pthread_mutex_lock(&extent_map[id].mutex);
   extent_map[id].data = buf;
   extent_map[id].attr.size = content_size;
-  auto curr_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-  extent_map[id].attr.atime = curr_time;
-  extent_map[id].attr.mtime = curr_time;
-  extent_map[id].attr.ctime = curr_time;
+  extent_map[id].attr.atime = atime;
+  extent_map[id].attr.mtime = mtime;
+  extent_map[id].attr.ctime = ctime;
   pthread_mutex_unlock(&extent_map[id].mutex);
 
   return extent_protocol::OK;
@@ -47,8 +54,6 @@ int extent_server::get(extent_protocol::extentid_t id, std::string &buf)
 
   pthread_mutex_lock(&extent_map[id].mutex);
   buf = extent_map[id].data;
-  auto curr_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-  extent_map[id].attr.atime = curr_time;
   pthread_mutex_unlock(&extent_map[id].mutex);
 
   return extent_protocol::OK;
