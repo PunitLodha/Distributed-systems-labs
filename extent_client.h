@@ -5,11 +5,12 @@
 
 #include <string>
 #include <unordered_map>
+#include <chrono>
 #include "extent_protocol.h"
 #include "lock_client_cache.h"
 #include "rpc.h"
 
-class extent_client : lock_release_user
+class extent_client : public lock_release_user
 {
 private:
   rpcc *cl;
@@ -24,6 +25,8 @@ private:
     attr(extent_protocol::attr attr)
     {
       _attr = attr;
+      _dirty = false;
+      _remove = false;
     }
 
     attr(int content_size)
@@ -33,6 +36,12 @@ private:
       _attr.mtime = curr_time;
       _attr.ctime = curr_time;
       _attr.size = content_size;
+       _dirty = false;
+      _remove = false;
+    }
+    attr() {
+      _dirty = false;
+      _remove = false;
     }
   };
 
@@ -48,7 +57,6 @@ public:
   extent_protocol::status getattr(extent_protocol::extentid_t eid,
                                   extent_protocol::attr &a);
   extent_protocol::status put(extent_protocol::extentid_t eid, std::string buf, int content_size);
-  extent_protocol::status remove(extent_protocol::extentid_t eid);
   extent_protocol::status remove(extent_protocol::extentid_t eid);
   void dorelease(lock_protocol::lockid_t);
 };

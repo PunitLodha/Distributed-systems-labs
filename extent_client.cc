@@ -24,12 +24,14 @@ extent_client::extent_client(std::string dst)
 extent_protocol::status
 extent_client::get(extent_protocol::extentid_t eid, std::string &buf)
 {
+  printf("[extent_client]Getting data for extentid: %llu\n", eid);
   pthread_mutex_lock(&global_lock);
   if (extent_mutex.count(eid) == 0)
     pthread_mutex_init(&extent_mutex[eid], NULL);
 
   if (extent_data.count(eid) == 0)
   {
+    printf("[extent_client]Getting data from server for extentid: %llu\n", eid);
     pthread_mutex_unlock(&global_lock);
     extent_protocol::status ret = extent_protocol::OK;
     ret = cl->call(extent_protocol::get, eid, buf);
@@ -39,11 +41,14 @@ extent_client::get(extent_protocol::extentid_t eid, std::string &buf)
     pthread_mutex_lock(&extent_mutex[eid]);
     extent_data[eid] = buf;
     pthread_mutex_unlock(&extent_mutex[eid]);
+  } else {
+    pthread_mutex_unlock(&global_lock);
   }
 
   pthread_mutex_lock(&global_lock);
   if (extent_attr.count(eid) == 0)
   {
+    printf("[extent_client]Getting attr from server for extentid: %llu\n", eid);
     pthread_mutex_unlock(&global_lock);
     extent_protocol::status ret = extent_protocol::OK;
 
@@ -55,8 +60,11 @@ extent_client::get(extent_protocol::extentid_t eid, std::string &buf)
     pthread_mutex_lock(&extent_mutex[eid]);
     extent_attr[eid] = extent_client::attr(attr);
     pthread_mutex_unlock(&extent_mutex[eid]);
+  } else {
+    pthread_mutex_unlock(&global_lock);
   }
 
+  printf("[extent_client]Getting data from cache for extentid: %llu\n", eid);
   pthread_mutex_lock(&extent_mutex[eid]);
   auto curr_time = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
   extent_attr[eid]._attr.atime = curr_time;
@@ -70,12 +78,14 @@ extent_protocol::status
 extent_client::getattr(extent_protocol::extentid_t eid,
                        extent_protocol::attr &attr)
 {
+  printf("[extent_client]Getting attr for extentid: %llu\n", eid);
   pthread_mutex_lock(&global_lock);
   if (extent_mutex.count(eid) == 0)
     pthread_mutex_init(&extent_mutex[eid], NULL);
-
+  
   if (extent_attr.count(eid) == 0)
   {
+    printf("[extent_client]Getting attr from server for extentid: %llu\n", eid);
     pthread_mutex_unlock(&global_lock);
     extent_protocol::status ret = extent_protocol::OK;
 
@@ -87,8 +97,11 @@ extent_client::getattr(extent_protocol::extentid_t eid,
     pthread_mutex_lock(&extent_mutex[eid]);
     extent_attr[eid] = extent_client::attr(attr);
     pthread_mutex_unlock(&extent_mutex[eid]);
+  } else {
+    pthread_mutex_unlock(&global_lock);
   }
 
+  printf("[extent_client]Getting attr from cache for extentid: %llu\n", eid);
   pthread_mutex_lock(&extent_mutex[eid]);
   attr = extent_attr[eid]._attr;
   pthread_mutex_unlock(&extent_mutex[eid]);
@@ -99,7 +112,7 @@ extent_client::getattr(extent_protocol::extentid_t eid,
 extent_protocol::status
 extent_client::put(extent_protocol::extentid_t eid, std::string buf, int content_size)
 {
-
+  printf("[extent_client]Putting data for extentid: %llu\n", eid);
   pthread_mutex_lock(&global_lock);
   if (extent_mutex.count(eid) == 0)
     pthread_mutex_init(&extent_mutex[eid], NULL);
@@ -115,6 +128,7 @@ extent_client::put(extent_protocol::extentid_t eid, std::string buf, int content
 extent_protocol::status
 extent_client::remove(extent_protocol::extentid_t eid)
 {
+  printf("[extent_client]Removing data for extentid: %llu\n", eid);
   extent_protocol::status ret = extent_protocol::OK;
   extent_protocol::attr attr;
   ret = getattr(eid, attr);
@@ -125,13 +139,16 @@ extent_client::remove(extent_protocol::extentid_t eid)
   extent_attr[eid]._dirty = true;
   extent_attr[eid]._remove = true;
   pthread_mutex_unlock(&extent_mutex[eid]);
+  return extent_protocol::OK;
 }
 
 void extent_client::dorelease(lock_protocol::lockid_t eid)
 {
+  printf("[extent_client]DO Releasing lock for extentid: %llu\n", eid);
   pthread_mutex_lock(&extent_mutex[eid]);
   if (extent_attr[eid]._remove)
   {
+    printf("[extent_client]DO Removing data for extentid: %llu\n", eid);
     extent_protocol::status ret;
     int r;
     ret = cl->call(extent_protocol::remove, eid, r);
@@ -141,6 +158,7 @@ void extent_client::dorelease(lock_protocol::lockid_t eid)
   }
   else if (extent_attr[eid]._dirty)
   {
+    printf("[extent_client]DO Putting dirty data to server for extentid: %llu\n", eid);
     extent_protocol::status ret;
     int r;
     ret = cl->call(extent_protocol::put, eid, extent_data[eid],
@@ -157,5 +175,7 @@ void extent_client::dorelease(lock_protocol::lockid_t eid)
   extent_attr.erase(eid);
 
   pthread_mutex_unlock(&extent_mutex[eid]);
+  pthread_mutex_lock(&global_lock);
   extent_mutex.erase(eid);
+  pthread_mutex_unlock(&global_lock);
 }

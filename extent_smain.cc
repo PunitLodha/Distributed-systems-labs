@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "extent_server.h"
+#include "jsl_log.h"
 
 // Main loop of extent server
 
@@ -17,6 +18,8 @@ main(int argc, char *argv[])
   }
 
   setvbuf(stdout, NULL, _IONBF, 0);
+
+  jsl_set_debug(4);
 
   char *count_env = getenv("RPC_COUNT");
   if(count_env != NULL){
