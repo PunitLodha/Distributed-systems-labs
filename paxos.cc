@@ -75,7 +75,6 @@ proposer::proposer(class paxos_change *_cfg, class acceptor *_acceptor,
       stable(true)
 {
     assert(pthread_mutex_init(&pxs_mutex, NULL) == 0);
-    l = new log(acc, me);
 }
 
 void proposer::setn()
@@ -238,13 +237,6 @@ void proposer::decide(unsigned instance, std::vector<std::string> accepts,
                       std::string v)
 {
     printf("proposer::decide: start instance %d\n", instance);
-    // acc->set_value(instance, v);
-    printf("proposer::decide: acceptor set value\n");
-    l->loginstance(instance, v);
-    printf("proposer::decide: log instance\n");
-    stable = true;
-    acc->commit(instance, v);
-    printf("proposer::decide acceptor commited\n");
     for (auto node : accepts)
     {
         printf("proposer::decide: contact acceptor %s\n", node.c_str());
@@ -259,6 +251,14 @@ void proposer::decide(unsigned instance, std::vector<std::string> accepts,
         paxos_protocol::status ret = node_handle.get_rpcc()->call(paxos_protocol::decidereq, me, args, r, rpcc::to(1000));
         assert(ret == paxos_protocol::OK);
     }
+    // acc->set_value(instance, v);
+    // printf("proposer::decide: acceptor set value\n");
+    // l->loginstance(instance, v);
+    // printf("proposer::decide: log instance\n");
+    stable = true;
+    acc->commit(instance, v);
+    printf("proposer::decide acceptor commited\n");
+    
 }
 
 acceptor::acceptor(class paxos_change *_cfg, bool _first, std::string _me,

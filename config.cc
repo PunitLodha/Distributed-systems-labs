@@ -201,6 +201,7 @@ config::add(std::string new_m)
   printf("config::add %s\n", new_m.c_str());
   m = mems;
   m.push_back(new_m);
+  printf("config::add: mems:%s and m: %s\n", print_members(mems).c_str(),print_members(m).c_str());
   std::string v = value(m);
   assert(pthread_mutex_unlock(&cfg_mutex)==0);
   bool r = pro->run(myvid+1, mems, v);
