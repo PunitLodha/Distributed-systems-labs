@@ -48,13 +48,11 @@ public:
         void commit(unsigned instance, std::string v);
         unsigned instance() { return instance_h; }
         std::string value(unsigned instance) { return values[instance]; }
-        std::string set_value(unsigned instance, std::string value) { values[instance] = value; }
         std::string dump();
         void restore(std::string);
         rpcs *get_rpcs() { return pxs; };
         prop_t get_n_h() { return n_h; };
         unsigned get_instance_h() { return instance_h; };
-        void set_instance_h(unsigned instance) { instance_h = instance; };
 };
 
 extern bool isamember(std::string m, const std::vector<std::string> &nodes);

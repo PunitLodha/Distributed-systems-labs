@@ -80,6 +80,7 @@ proposer::proposer(class paxos_change *_cfg, class acceptor *_acceptor,
 void proposer::setn()
 {
     my_n.n = acc->get_n_h().n + 1 > my_n.n + 1 ? acc->get_n_h().n + 1 : my_n.n + 1;
+    my_n.m = me;
 }
 
 bool proposer::run(int instance, std::vector<std::string> c_nodes, std::string c_v)
@@ -91,8 +92,8 @@ bool proposer::run(int instance, std::vector<std::string> c_nodes, std::string c
     bool r = false;
 
     pthread_mutex_lock(&pxs_mutex);
-    printf("start: initiate paxos for %s w. i=%d v=%s stable=%d\n",
-           print_members(c_nodes).c_str(), instance, c_v.c_str(), stable);
+    printf("start: initiate paxos for %s w. i=%d v=%s stable=%d, instance_h=%d\n",
+           print_members(c_nodes).c_str(), instance, c_v.c_str(), stable, acc->instance());
     if (!stable)
     { // already running proposer?
         printf("proposer::run: already running\n");
@@ -154,11 +155,10 @@ bool proposer::prepare(unsigned instance, std::vector<std::string> &accepts,
                        std::vector<std::string> nodes,
                        std::string &v)
 {
-    if (!stable)
-        return false;
-
     printf("proposer::prepare: start instance %d\n", instance);
     printf("proposer::prepare: nodes: %s\n", print_members(nodes).c_str());
+    prop_t highest_ni = prop_t{0, ""};
+
     for (auto node : nodes)
     {
         printf("proposer::prepare: contact acceptor %s\n", node.c_str());
@@ -176,23 +176,26 @@ bool proposer::prepare(unsigned instance, std::vector<std::string> &accepts,
         paxos_protocol::status ret = node_handle.get_rpcc()->call(paxos_protocol::preparereq, me, args, res, rpcc::to(1000));
         printf("proposer::prepare: contact acceptor %s ret %d\n", node.c_str(), ret);
 
-        if (ret == paxos_protocol::ERR)
-            return false;
+        if (ret != paxos_protocol::OK)
+        {
+            printf("proposer::prepare: acceptor returned not OK\n");
+            continue;
+        }
 
         if (res.oldinstance)
         {
             printf("proposer::prepare: acceptor returned oldinstance\n");
-            acc->set_value(instance, res.v_a);
-            acc->set_instance_h(instance);
             acc->commit(instance, res.v_a);
-            stable = true;
             return false;
         }
         else if (res.accept)
         {
             printf("proposer::prepare: acceptor returned accept\n");
             accepts.push_back(node);
-            v = res.v_a;
+            if (res.n_a > highest_ni && res.v_a.size() != 0) {
+                highest_ni = res.n_a;
+                v = res.v_a;
+            }
         }
         else
         {
@@ -223,7 +226,11 @@ void proposer::accept(unsigned instance, std::vector<std::string> &accepts,
 
         int r = 0;
         paxos_protocol::status ret = node_handle.get_rpcc()->call(paxos_protocol::acceptreq, me, args, r, rpcc::to(1000));
-        assert(ret == paxos_protocol::OK);
+        if (ret != paxos_protocol::OK)
+        {
+            printf("proposer::prepare: acceptor returned not OK\n");
+            continue;
+        }
 
         if (r)
         {
@@ -237,6 +244,8 @@ void proposer::decide(unsigned instance, std::vector<std::string> accepts,
                       std::string v)
 {
     printf("proposer::decide: start instance %d\n", instance);
+    // acc->commit(instance, v);
+    // printf("proposer::decide acceptor commited\n");
     for (auto node : accepts)
     {
         printf("proposer::decide: contact acceptor %s\n", node.c_str());
@@ -249,16 +258,14 @@ void proposer::decide(unsigned instance, std::vector<std::string> accepts,
 
         int r = 0;
         paxos_protocol::status ret = node_handle.get_rpcc()->call(paxos_protocol::decidereq, me, args, r, rpcc::to(1000));
-        assert(ret == paxos_protocol::OK);
+        if (ret != paxos_protocol::OK)
+        {
+            printf("proposer::prepare: acceptor returned not OK\n");
+            continue;
+        }
     }
-    // acc->set_value(instance, v);
-    // printf("proposer::decide: acceptor set value\n");
     // l->loginstance(instance, v);
     // printf("proposer::decide: log instance\n");
-    stable = true;
-    acc->commit(instance, v);
-    printf("proposer::decide acceptor commited\n");
-    
 }
 
 acceptor::acceptor(class paxos_change *_cfg, bool _first, std::string _me,
@@ -298,9 +305,10 @@ acceptor::preparereq(std::string src, paxos_protocol::preparearg a,
     if (a.instance <= instance_h)
     {
         printf("acceptor::preparereq: oldinstance\n");
-        r.oldinstance = 1;
-        r.accept = 0;
-        r.v_a = values[a.instance];
+        r.oldinstance = a.instance;
+        r.accept = 1;
+        r.v_a = value(a.instance);
+        r.n_a = n_a;
     }
     else if (a.n > n_h)
     {
@@ -311,6 +319,14 @@ acceptor::preparereq(std::string src, paxos_protocol::preparearg a,
         r.v_a = v_a;
         r.oldinstance = 0;
         r.accept = 1;
+    }
+    else
+    {
+        printf("acceptor::preparereq: reject\n");
+        r.oldinstance = 0;
+        r.accept = 0;
+        r.n_a = n_a;
+        r.v_a = v_a;
     }
     return paxos_protocol::OK;
 }
@@ -341,10 +357,13 @@ acceptor::decidereq(std::string src, paxos_protocol::decidearg a, int &r)
     if (a.instance > instance_h)
     {
         printf("acceptor::decidereq: higher\n");
-        values[a.instance] = a.v;
-        instance_h = a.instance;
-        l->loginstance(instance_h, a.v);
-        r = 1;
+        // TODO! commit to log!
+
+        commit(a.instance, a.v);
+        // values[a.instance] = a.v;
+        // instance_h = a.instance;
+        // l->loginstance(instance_h, a.v);
+        // r = 1;
     }
     return paxos_protocol::OK;
 }
@@ -352,7 +371,7 @@ acceptor::decidereq(std::string src, paxos_protocol::decidearg a, int &r)
 void acceptor::commit_wo(unsigned instance, std::string value)
 {
     // assume pxs_mutex is held
-    printf("acceptor::commit: instance=%d has v= %s\n", instance, value.c_str());
+    printf("acceptor::commit: instance=%d instance_h=%d has v= %s\n", instance, instance_h ,value.c_str());
     if (instance > instance_h)
     {
         printf("commit: highestaccepteinstance = %d\n", instance);

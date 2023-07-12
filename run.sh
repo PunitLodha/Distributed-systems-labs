@@ -6,7 +6,7 @@ run() {
         rm -f *.log
         # make clean
         make
-        ./rsm_tester.pl 0
+        ./rsm_tester.pl 0 1 2 3 4 5 6 7
         killall lock_server
     done
 }
