@@ -50,7 +50,7 @@ log::logread(void)
       printf("logread: prop update %d(%s) with v = %s\n", pxs->n_a.n, 
 	     pxs->n_a.m.c_str(), pxs->v_a.c_str());
     } else {
-      printf("logread: unknown log record\n");
+      printf("logread: unknown log record, type: %s\n", type.c_str());
       assert(0);
     }
   } 
@@ -76,6 +76,7 @@ log::restore(std::string s)
 {
   std::ofstream f;
   printf("restore: %s\n", s.c_str());
+  printf("restoring log from: %s\n", name.c_str());
   f.open(name.c_str(), std::ios::trunc);
   f << s;
   f.close();

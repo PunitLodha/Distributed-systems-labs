@@ -5,23 +5,24 @@
 #define lock_client_cache_h
 
 #include <string>
+#include <queue>
 #include "lock_protocol.h"
 #include "rpc.h"
 #include "lock_client.h"
 
-// Classes that inherit lock_release_user can override dorelease so that 
+// Classes that inherit lock_release_user can override dorelease so that
 // that they will be called when lock_client releases a lock.
 // You will not need to do anything with this class until Lab 6.
-class lock_release_user {
- public:
+class lock_release_user
+{
+public:
   virtual void dorelease(lock_protocol::lockid_t) = 0;
-  virtual ~lock_release_user() {};
+  virtual ~lock_release_user(){};
 };
-
 
 // SUGGESTED LOCK CACHING IMPLEMENTATION PLAN:
 //
-// to work correctly for lab 7,  all the requests on the server run till 
+// to work correctly for lab 7,  all the requests on the server run till
 // completion and threads wait on condition variables on the client to
 // wait for a lock.  this allows the server to be replicated using the
 // replicated state machine approach.
@@ -44,8 +45,8 @@ class lock_release_user {
 // thread to ask for the lock again.
 //
 // once a thread has acquired a lock, its client obtains ownership of
-// the lock. the client can grant the lock to other threads on the client 
-// without interacting with the server. 
+// the lock. the client can grant the lock to other threads on the client
+// without interacting with the server.
 //
 // the server must send the client a revoke request to get the lock back. this
 // request tells the client to send the lock back to the
@@ -68,22 +69,58 @@ class lock_release_user {
 // has been received.
 //
 
-
-class lock_client_cache : public lock_client {
- private:
+class lock_client_cache : public lock_client
+{
+private:
   class lock_release_user *lu;
   int rlock_port;
   std::string hostname;
   std::string id;
 
- public:
+  enum lock_state
+  {
+    NONE,
+    FREE,
+    LOCKED,
+    ACQUIRING,
+    RELEASING
+  };
+
+  struct lock_entry
+  {
+    lock_state state;
+    lock_protocol::lockid_t lid;
+    pthread_cond_t cond;
+    pthread_mutex_t mutex;
+    bool revoke_present;
+    bool retry_present;
+    int current_sequence_id;
+
+    lock_entry() : state(NONE)
+    {
+      pthread_cond_init(&cond, NULL);
+      pthread_mutex_init(&mutex, NULL);
+      revoke_present = false;
+      retry_present = false;
+      current_sequence_id = 0;
+    }
+  };
+
+  std::map<lock_protocol::lockid_t, lock_entry> lock_map;
+  std::queue<lock_protocol::lockid_t> release_queue;
+  pthread_cond_t release_queue_cv;
+  pthread_mutex_t release_queue_mutex;
+  pthread_mutex_t global_lock;
+
+public:
   static int last_port;
   lock_client_cache(std::string xdst, class lock_release_user *l = 0);
-  virtual ~lock_client_cache() {};
+  virtual ~lock_client_cache(){};
   lock_protocol::status acquire(lock_protocol::lockid_t);
   virtual lock_protocol::status release(lock_protocol::lockid_t);
+  rlock_protocol::status retry(lock_protocol::lockid_t lid, int sequence_id, int &r);
+  rlock_protocol::status revoke(lock_protocol::lockid_t lid, int sequence_id, int &r);
+  lock_entry &get_lock_entry(lock_protocol::lockid_t lid);
   void releaser();
 };
 #endif
-
-
