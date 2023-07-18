@@ -4,13 +4,14 @@
 #include <string>
 #include <unordered_map>
 #include <set>
-#include <queue>
+#include <deque>
 #include "lock_protocol.h"
 #include "rpc.h"
 #include "lock_server.h"
+#include "rsm.h"
 
 #include "rsm.h"
-class lock_server_cache
+class lock_server_cache : rsm_state_transfer
 {
 
 private:
@@ -21,10 +22,10 @@ public:
   std::unordered_map<lock_protocol::lockid_t, int> lock_owner;
 
   std::unordered_map<lock_protocol::lockid_t, std::set<int>> retry_map;
-  std::queue<lock_protocol::lockid_t> retry_queue;
+  std::deque<lock_protocol::lockid_t> retry_queue;
   pthread_cond_t retry_queue_cv;
 
-  std::queue<lock_protocol::lockid_t> revoke_queue;
+  std::deque<lock_protocol::lockid_t> revoke_queue;
   pthread_cond_t revoke_queue_cv;
 
   std::unordered_map<int, rpcc *> clients;
@@ -37,6 +38,8 @@ public:
   lock_protocol::status subscribe(int clt, std::string dst, int &);
   void revoker();
   void retryer();
+  std::string marshal_state();
+  void unmarshal_state(std::string);
 };
 
 #endif

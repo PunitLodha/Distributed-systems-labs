@@ -9,6 +9,7 @@
 #include "lock_protocol.h"
 #include "rpc.h"
 #include "lock_client.h"
+#include "rsm_client.h"
 
 // Classes that inherit lock_release_user can override dorelease so that
 // that they will be called when lock_client releases a lock.

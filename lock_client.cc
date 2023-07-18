@@ -2,6 +2,7 @@
 
 #include "lock_client.h"
 #include "rpc.h"
+#include "rsm_client.h"
 #include <arpa/inet.h>
 
 #include <sstream>
@@ -12,11 +13,7 @@ lock_client::lock_client(std::string dst)
 {
   sockaddr_in dstsock;
   make_sockaddr(dst.c_str(), &dstsock);
-  cl = new rpcc(dstsock);
-  if (cl->bind() < 0)
-  {
-    printf("lock_client: call bind\n");
-  }
+  cl = new rsm_client(dst);
 }
 
 int lock_client::stat(lock_protocol::lockid_t lid)

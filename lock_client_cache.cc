@@ -62,18 +62,24 @@ void lock_client_cache::releaser()
   while (true)
   {
     pthread_mutex_lock(&release_queue_mutex);
+
     while (release_queue.empty())
-    {
       pthread_cond_wait(&release_queue_cv, &release_queue_mutex);
-    }
+
     lock_protocol::lockid_t lid = release_queue.front();
     release_queue.pop();
+
     pthread_mutex_unlock(&release_queue_mutex);
+
     int sequence_id = get_lock_entry(lid).current_sequence_id;
     // Send release RPC
     int r;
-    lu->dorelease(lid);
+
+    if (lu)
+      lu->dorelease(lid);
+
     int ret = cl->call(lock_protocol::release, cl->id(), lid, sequence_id, r);
+
     assert(ret == lock_protocol::OK);
     jsl_log(JSL_DBG_4, "[clt:%s] releasing the lock to server: %llu\n", id.c_str(), lid);
 
@@ -207,7 +213,8 @@ lock_client_cache::acquire(lock_protocol::lockid_t lid)
 
   current_state.state = lock_state::LOCKED;
 
-  if (current_state.revoke_present) {
+  if (current_state.revoke_present)
+  {
     current_state.state = lock_state::RELEASING;
     current_state.revoke_present = false;
   }
